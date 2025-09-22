@@ -257,3 +257,7 @@ ML/generate_internship_data_fixed.py
 # ML/internships_india_enhanced.csv
 # ML/internships_india_enhanced.json
 # ML/internships_india_enhanced.jsonl
+
+
+frontend/node_modules
+backend/node_modules
