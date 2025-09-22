@@ -164,6 +164,17 @@ export const interestOptions = [
   'Technology', 'Education', 'Healthcare', 'Environment', 'Finance',
   'Media', 'Research', 'Policy', 'Startups', 'NGOs'
 ];
+
+export const jobRoleOptions = [
+  'Full Stack Developer', 'Frontend Developer', 'Backend Developer',
+  'Data Scientist', 'Data Analyst', 'Machine Learning Engineer',
+  'DevOps Engineer', 'Cloud Engineer', 'Mobile App Developer',
+  'UI/UX Designer', 'Product Manager', 'Business Analyst',
+  'Content Writer', 'Digital Marketing Specialist', 'SEO Specialist',
+  'Research Analyst', 'Operations Manager', 'Project Manager',
+  'HR Executive', 'Sales Executive', 'Customer Support Executive',
+  'Financial Analyst', 'Consultant', 'Teacher', 'Trainer'
+];
 export const cities = [
   'Delhi', 'Mumbai', 'Bangalore', 'Chennai', 'Hyderabad', 'Kolkata',
   'Pune', 'Ahmedabad', 'Jaipur', 'Surat', 'Lucknow', 'Kanpur',

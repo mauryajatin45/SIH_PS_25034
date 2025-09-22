@@ -62,7 +62,22 @@ const candidateSchema = new mongoose.Schema({
   accessibility_needs: {
     type: String,
     default: 'None'
-  }
+  },
+  // New fields for ML model compatibility
+  max_distance_km: {
+    type: Number,
+    default: 50,
+    min: 1,
+    max: 500
+  },
+  preferred_job_roles: [{
+    type: String,
+    trim: true
+  }],
+  preferred_sectors: [{
+    type: String,
+    trim: true
+  }]
 }, {
   timestamps: true
 });

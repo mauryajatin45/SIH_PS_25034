@@ -5,8 +5,8 @@ const { validateFeedback } = require('../middleware/validation');
 
 const router = express.Router();
 
-// Submit feedback
-router.post('/', auth, validateFeedback, submitFeedback);
+// Submit feedback (auth optional). If token present, req.userId will be set; otherwise anonymous.
+router.post('/', validateFeedback, submitFeedback);
 
 // (Optional) Current user's feedback list
 router.get('/me', auth, getMyFeedback);

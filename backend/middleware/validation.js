@@ -29,6 +29,12 @@ const isValidAvailability = (value) =>
   value.hours_per_week >= 1 &&
   value.hours_per_week <= 40;
 
+const isValidMaxDistance = (value) => typeof value === 'number' && value >= 1 && value <= 500;
+
+const isValidPreferredJobRoles = (value) => Array.isArray(value) && value.every((s) => typeof s === 'string');
+
+const isValidPreferredSectors = (value) => Array.isArray(value) && value.every((s) => typeof s === 'string');
+
 // ---------- Candidate validation middleware ----------
 const validateCandidate = (req, res, next) => {
   const errors = [];

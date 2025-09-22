@@ -12,6 +12,10 @@ export interface CandidateProfile {
     hours_per_week: number;
   };
   accessibility_needs: string | null;
+  // New fields for ML model compatibility
+  max_distance_km: number;
+  preferred_job_roles: string[];
+  preferred_sectors: string[];
 }
 
 export interface InternshipRecommendation {

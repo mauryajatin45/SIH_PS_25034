@@ -17,6 +17,7 @@ export default function ResultsPage() {
   const [recommendations, setRecommendations] = useState<InternshipRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'recommended' | 'all'>('recommended');
   const [savedInternships, setSavedInternships] = useLocalStorage<string[]>('udaan_saved_internships', []);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({
@@ -75,7 +76,7 @@ export default function ResultsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadRecommendations = async () => {
+  const loadRecommendations = async (type: 'recommended' | 'all' = 'recommended') => {
     const userJson = localStorage.getItem('user');
     const token = localStorage.getItem('token');
     if (!token || !userJson) {
@@ -94,23 +95,65 @@ export default function ResultsPage() {
     try {
       setLoading(true);
       setError(null);
-      const resp = await apiClient.getRecommendations(userId, {
-        sector: filters.sector,
-        location: filters.location,
-        remote: filters.remote,
-        min_stipend: filters.minStipend,
-        max_duration: filters.maxDuration,
-      });
-      let list = (resp as any)?.data?.recommendations || [];
-      if (!Array.isArray(list) || list.length === 0) {
+
+      if (type === 'recommended') {
+        // Try ML recommendations first
         try {
-          const completed = localStorage.getItem('udaan_profile_complete');
-          const profileData = completed ? JSON.parse(completed) : (profile || {});
-          const mock = await mockApi.getRecommendations(profileData as any);
-          list = mock as any;
-        } catch {}
+          const resp = await apiClient.getMLRecommendations(userId);
+          let list = (resp as any)?.data?.recommendations || [];
+          if (!Array.isArray(list) || list.length === 0) {
+            // Fallback to regular recommendations if ML returns empty
+            const fallbackResp = await apiClient.getRecommendations(userId, {
+              sector: filters.sector,
+              location: filters.location,
+              remote: filters.remote,
+              min_stipend: filters.minStipend,
+              max_duration: filters.maxDuration,
+            });
+            list = (fallbackResp as any)?.data?.recommendations || [];
+          }
+          setRecommendations(list as any);
+        } catch (mlError) {
+          console.log('ML recommendations failed, using fallback:', mlError);
+          // Fallback to regular recommendations
+          const resp = await apiClient.getRecommendations(userId, {
+            sector: filters.sector,
+            location: filters.location,
+            remote: filters.remote,
+            min_stipend: filters.minStipend,
+            max_duration: filters.maxDuration,
+          });
+          let list = (resp as any)?.data?.recommendations || [];
+          if (!Array.isArray(list) || list.length === 0) {
+            try {
+              const completed = localStorage.getItem('udaan_profile_complete');
+              const profileData = completed ? JSON.parse(completed) : (profile || {});
+              const mock = await mockApi.getRecommendations(profileData as any);
+              list = mock as any;
+            } catch {}
+          }
+          setRecommendations(list as any);
+        }
+      } else {
+        // Load all opportunities (regular recommendations)
+        const resp = await apiClient.getRecommendations(userId, {
+          sector: filters.sector,
+          location: filters.location,
+          remote: filters.remote,
+          min_stipend: filters.minStipend,
+          max_duration: filters.maxDuration,
+        });
+        let list = (resp as any)?.data?.recommendations || [];
+        if (!Array.isArray(list) || list.length === 0) {
+          try {
+            const completed = localStorage.getItem('udaan_profile_complete');
+            const profileData = completed ? JSON.parse(completed) : (profile || {});
+            const mock = await mockApi.getRecommendations(profileData as any);
+            list = mock as any;
+          } catch {}
+        }
+        setRecommendations(list as any);
       }
-      setRecommendations(list as any);
     } catch (err) {
       setError(
         err instanceof Error
@@ -182,14 +225,30 @@ export default function ResultsPage() {
             {/* Nav Tabs (instead of old header) */}
             <div className="flex items-center space-x-4 mb-6">
               <button
-                className="px-4 py-2 rounded-t-lg text-sm font-medium text-white bg-orange-500"
+                onClick={() => {
+                  setActiveTab('recommended');
+                  loadRecommendations('recommended');
+                }}
+                className={`px-4 py-2 rounded-t-lg text-sm font-medium ${
+                  activeTab === 'recommended'
+                    ? 'text-white bg-orange-500'
+                    : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+                }`}
               >
-                My Current Status
+                Recommended opportunity
               </button>
               <button
-                className="px-4 py-2 rounded-t-lg text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200"
+                onClick={() => {
+                  setActiveTab('all');
+                  loadRecommendations('all');
+                }}
+                className={`px-4 py-2 rounded-t-lg text-sm font-medium ${
+                  activeTab === 'all'
+                    ? 'text-white bg-orange-500'
+                    : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+                }`}
               >
-                Internship Opportunities
+                All opportunity
               </button>
             </div>
 
@@ -281,7 +340,7 @@ export default function ResultsPage() {
                 <p className="text-gray-600 mb-6 max-w-md mx-auto">{error}</p>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <button
-                    onClick={loadRecommendations}
+                    onClick={() => loadRecommendations(activeTab)}
                     className="flex items-center justify-center px-6 py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500"
                   >
                     <RefreshCw className="w-4 h-4 mr-2" />

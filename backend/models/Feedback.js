@@ -4,7 +4,7 @@ const feedbackSchema = new mongoose.Schema({
   candidate: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Candidate',
-    required: true
+    required: false
   },
   internship: {
     type: mongoose.Schema.Types.ObjectId,

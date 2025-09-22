@@ -8,17 +8,15 @@ const submitFeedback = async (req, res) => {
   try {
     const { rating, text, internship } = req.body || {};
 
-    // Find candidate tied to logged-in user (req.userId set by auth middleware)
-    const candidateDoc = await Candidate.findOne({ user: req.userId }).select('_id');
-    if (!candidateDoc) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Candidate profile not found' }
-      });
+    // Candidate is optional: attach if logged in and profile exists
+    let candidateId;
+    if (req.userId) {
+      const candidateDoc = await Candidate.findOne({ user: req.userId }).select('_id');
+      if (candidateDoc) candidateId = candidateDoc._id;
     }
 
     const payload = {
-      candidate: candidateDoc._id,
+      ...(candidateId ? { candidate: candidateId } : {}),
       rating,                                           // 'up' | 'down'
       text: (text || '').trim() || undefined,
       metadata: {
