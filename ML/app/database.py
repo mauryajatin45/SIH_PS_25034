@@ -1,20 +1,25 @@
 import os
 import logging
 from typing import List, Dict, Any, Optional
-from pymongo import MongoClient
+
+from pymongo import MongoClient, ASCENDING, DESCENDING, GEOSPHERE, TEXT
 from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.server_api import ServerApi
 
 logger = logging.getLogger(__name__)
 
+
 class DatabaseManager:
     def __init__(self, connection_string: Optional[str] = None):
         """Initialize MongoDB connection."""
         self.connection_string = connection_string or os.getenv(
             "MONGODB_URI",
-            "mongodb+srv://dhruvdipakchudasama686_db_user:D7i20ZB0uipKiDDs@projectdata.qblzts3.mongodb.net/?retryWrites=true&w=majority&appName=projectdata"
+            "mongodb+srv://dhruvdipakchudasama686_db_user:D7i20ZB0uipKiDDs@projectdata.qblzts3.mongodb.net/?retryWrites=true&w=majority&appName=projectdata",
         )
+        self.db_name = os.getenv("MONGODB_DB", "project_1")
+        self.collection_name = os.getenv("MONGODB_COLLECTION", "internship_data")
+
         self.client: Optional[MongoClient] = None
         self.db = None
         self.internships_collection: Optional[Collection] = None
@@ -22,18 +27,26 @@ class DatabaseManager:
     def connect(self) -> bool:
         """Establish connection to MongoDB."""
         try:
-            self.client = MongoClient(self.connection_string, server_api=ServerApi('1'), serverSelectionTimeoutMS=5000)
-            # Test the connection
-            self.client.admin.command('ping')
-            self.db = self.client.get_database("project_1")
-            self.internships_collection = self.db.get_collection("internship_data")
-            logger.info("Successfully connected to MongoDB Atlas")
+            # ServerApi('1') works for Atlas; harmless for community server
+            self.client = MongoClient(
+                self.connection_string,
+                server_api=ServerApi("1"),
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+                socketTimeoutMS=10000,
+                retryWrites=True,
+            )
+            # test connection
+            self.client.admin.command("ping")
+            self.db = self.client.get_database(self.db_name)
+            self.internships_collection = self.db.get_collection(self.collection_name)
+            logger.info("Connected to MongoDB db=%s collection=%s", self.db_name, self.collection_name)
             return True
         except ConnectionFailure as e:
-            logger.error(f"Failed to connect to MongoDB: {e}")
+            logger.error("Failed to connect to MongoDB: %s", e)
             return False
         except Exception as e:
-            logger.error(f"Unexpected error connecting to MongoDB: {e}")
+            logger.error("Unexpected error connecting to MongoDB: %s", e)
             return False
 
     def ensure_indexes(self) -> bool:
@@ -43,47 +56,46 @@ class DatabaseManager:
             return False
 
         try:
-            # Create 2dsphere index for geospatial queries on exact location
-            self.internships_collection.create_index([("location_point_exact", "2dsphere")])
-            logger.info("Created 2dsphere index on location_point_exact field")
+            col = self.internships_collection
 
-            # Create 2dsphere index for city location queries
-            self.internships_collection.create_index([("location_point_city", "2dsphere")])
-            logger.info("Created 2dsphere index on location_point_city field")
+            # Geospatial indexes (GeoJSON expects lon,lat and GEOSPHERE)
+            col.create_index([("location_point_exact", GEOSPHERE)], name="idx_geo_exact")
+            col.create_index([("location_point_city", GEOSPHERE)], name="idx_geo_city")
+            logger.info("Ensured geospatial indexes")
 
-            # Create text indexes for better search performance (matching the schema)
-            self.internships_collection.create_index([
-                ("title", "text"),
-                ("description", "text"),
-                ("skills", "text"),
-                ("interests", "text"),
-                ("sector", "text"),
-                ("job_role", "text")
-            ])
-            logger.info("Created text indexes for search fields")
+            # Text index for search fields (single combined text index)
+            # Note: only one text index per collection in MongoDB
+            try:
+                col.create_index(
+                    [
+                        ("title", TEXT),
+                        ("description", TEXT),
+                        ("skills", TEXT),
+                        ("interests", TEXT),
+                        ("sector", TEXT),
+                        ("job_role", TEXT),
+                    ],
+                    name="idx_text_all",
+                    default_language="english",
+                )
+                logger.info("Ensured text index")
+            except OperationFailure as te:
+                logger.warning("Text index ensure warning: %s", te)
 
-            # Create compound index for common queries
-            self.internships_collection.create_index([
-                ("sector", 1),
-                ("job_role", 1),
-                ("expected_salary", -1)
-            ])
-            logger.info("Created compound index for sector, job_role, and salary")
+            # Compound indexes for common filters/sorts
+            col.create_index([("sector", ASCENDING), ("job_role", ASCENDING), ("expected_salary", DESCENDING)],
+                             name="idx_sector_role_salary")
+            col.create_index([("created_at", DESCENDING)], name="idx_created_at")
+            col.create_index([("posted_at", DESCENDING)], name="idx_posted_at")
+            col.create_index([("createdAt", DESCENDING)], name="idx_createdAt_legacy")
 
-            # Create compound sparse index for text search (matching the user's index)
-            self.internships_collection.create_index([
-                ("skills", "text"),
-                ("interests", "text"),
-                ("sector", "text")
-            ], sparse=True)
-            logger.info("Created compound sparse text index for skills, interests, and sector")
-
+            logger.info("All indexes ensured")
             return True
         except OperationFailure as e:
-            logger.error(f"Failed to create indexes: {e}")
+            logger.error("Failed to create indexes: %s", e)
             return False
         except Exception as e:
-            logger.error(f"Unexpected error creating indexes: {e}")
+            logger.error("Unexpected error creating indexes: %s", e)
             return False
 
     def insert_internship(self, internship: Dict[str, Any]) -> bool:
@@ -91,13 +103,12 @@ class DatabaseManager:
         if self.internships_collection is None:
             logger.error("No collection available for insertion")
             return False
-
         try:
             result = self.internships_collection.insert_one(internship)
-            logger.info(f"Inserted internship with ID: {result.inserted_id}")
+            logger.info("Inserted internship with ID: %s", result.inserted_id)
             return True
         except Exception as e:
-            logger.error(f"Failed to insert internship: {e}")
+            logger.error("Failed to insert internship: %s", e)
             return False
 
     def insert_internships_bulk(self, internships: List[Dict[str, Any]]) -> bool:
@@ -105,13 +116,15 @@ class DatabaseManager:
         if self.internships_collection is None:
             logger.error("No collection available for bulk insertion")
             return False
-
+        if not internships:
+            logger.info("No internships provided for bulk insert")
+            return True
         try:
-            result = self.internships_collection.insert_many(internships)
-            logger.info(f"Inserted {len(result.inserted_ids)} internships")
+            result = self.internships_collection.insert_many(internships, ordered=False)
+            logger.info("Inserted %d internships", len(result.inserted_ids))
             return True
         except Exception as e:
-            logger.error(f"Failed to insert internships in bulk: {e}")
+            logger.error("Failed to insert internships in bulk: %s", e)
             return False
 
     def find_internships_by_location(
@@ -120,41 +133,32 @@ class DatabaseManager:
         lon: float,
         max_distance_km: int,
         limit: int = 100,
-        geo_field: str = "location_point_exact"
+        geo_field: str = "location_point_exact",
     ) -> List[Dict[str, Any]]:
-        """Find internships within a certain distance using geospatial queries.
-
-        Args:
-            lat: User's latitude
-            lon: User's longitude
-            max_distance_km: Maximum search distance in kilometers
-            limit: Maximum number of results to return
-            geo_field: Which geospatial field to use ('location_point_exact' or 'location_point_city')
+        """
+        Find internships within a certain distance using geospatial queries.
         """
         if self.internships_collection is None:
             logger.error("No collection available for location search")
             return []
 
         try:
-            # Use $near query for better performance and sorting by distance
             query = {
                 geo_field: {
                     "$near": {
-                        "$geometry": {
-                            "type": "Point",
-                            "coordinates": [lon, lat]  # MongoDB expects [longitude, latitude]
-                        },
-                        "$maxDistance": max_distance_km * 1000  # Convert km to meters
+                        "$geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
+                        "$maxDistance": int(max(0, max_distance_km)) * 1000,  # meters
                     }
                 }
             }
 
-            cursor = self.internships_collection.find(query).limit(limit)
+            projection = {"_id": 0}
+            cursor = self.internships_collection.find(query, projection).limit(int(limit))
             results = list(cursor)
-            logger.info(f"Found {len(results)} internships within {max_distance_km}km using {geo_field}")
+            logger.info("Found %d internships within %dkm via %s", len(results), max_distance_km, geo_field)
             return results
         except Exception as e:
-            logger.error(f"Failed to find internships by location: {e}")
+            logger.error("Failed to find internships by location: %s", e)
             return []
 
     def find_nearest_internships(
@@ -166,9 +170,8 @@ class DatabaseManager:
         geo_field: str = "location_point_exact",
         max_distance_km: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """Find the nearest N internships to the user's coordinates, optionally filtered by preference.
-
-        This implements the ML algorithm workflow: coordinates -> preferences filtering
+        """
+        Find the nearest N internships to the user's coordinates, optionally filtered by preference.
         Supports max_distance_km to limit search radius.
         """
         if self.internships_collection is None:
@@ -176,113 +179,158 @@ class DatabaseManager:
             return []
 
         try:
-            # Build preference filter
-            base_filter = {}
-            if preference:
-                if "sector" in preference and preference["sector"]:
-                    # Case-insensitive regex match for sector
-                    base_filter["sector"] = {"$regex": f"^{preference['sector']}$", "$options": "i"}
-                if "skills" in preference and preference["skills"]:
-                    base_filter["skills"] = {"$in": [s.lower() for s in preference["skills"]]}
-                if "work_mode" in preference and preference["work_mode"]:
-                    # Case-insensitive regex match for work_mode
-                    base_filter["preference.work_mode"] = {"$regex": f"^{preference['work_mode']}$", "$options": "i"}
+            base_filter: Dict[str, Any] = {}
 
-            # Add geospatial query
-            geo_query = {
-                "$geometry": {
-                    "type": "Point",
-                    "coordinates": [user_lon, user_lat]  # [longitude, latitude]
-                }
+            # Preference filters (case-insensitive; your preprocessing normalizes to lowercase)
+            if preference:
+                sector = preference.get("sector")
+                if sector:
+                    base_filter["sector"] = {"$regex": f"^{sector}$", "$options": "i"}
+
+                skills = preference.get("skills") or []
+                if skills:
+                    # normalized skills are simple lowercase tokens
+                    base_filter["skills"] = {"$in": [str(s).lower() for s in skills if s]}
+
+                work_mode = preference.get("work_mode")
+                if work_mode:
+                    # support both new 'work_mode' field and legacy 'preference.work_mode'
+                    base_filter["$or"] = [
+                        {"work_mode": {"$regex": f"^{work_mode}$", "$options": "i"}},
+                        {"preference.work_mode": {"$regex": f"^{work_mode}$", "$options": "i"}},
+                    ]
+
+                # optional role/sector arrays
+                preferred_roles = preference.get("preferred_job_roles") or []
+                if preferred_roles:
+                    base_filter["job_role"] = {"$in": [str(r).lower() for r in preferred_roles if r]}
+
+                preferred_sectors = preference.get("preferred_sectors") or []
+                if preferred_sectors:
+                    base_filter.setdefault("$or", [])
+                    base_filter["$or"].append({"sector": {"$in": [str(s).lower() for s in preferred_sectors if s]}})
+
+                # duration minimum if provided
+                md = preference.get("min_duration_months")
+                if isinstance(md, (int, float)) and md > 0:
+                    # duration stored as {"months": int} and/or flat duration_months
+                    base_filter["$or"] = (base_filter.get("$or") or []) + [
+                        {"duration.months": {"$gte": int(md)}},
+                        {"duration_months": {"$gte": int(md)}},
+                    ]
+
+            # Geospatial near query (requires GEOSPHERE index on geo_field)
+            near_clause: Dict[str, Any] = {
+                "$geometry": {"type": "Point", "coordinates": [float(user_lon), float(user_lat)]}
             }
             if max_distance_km is not None:
-                geo_query["$maxDistance"] = max_distance_km * 1000  # meters
+                near_clause["$maxDistance"] = int(max(0, max_distance_km)) * 1000
 
-            base_filter[geo_field] = {
-                "$near": geo_query
-            }
+            base_filter[geo_field] = {"$near": near_clause}
 
-            # Project only needed fields
+            # Projection: include fields the recommender uses for scoring/tie-breakers
             projection = {
                 "_id": 0,
                 "id": 1,
                 "title": 1,
+                "description": 1,
                 "sector": 1,
                 "skills": 1,
-                "preference.work_mode": 1,
-                "location.city": 1,
-                "location.lat": 1,
-                "location.lon": 1,
-                "location_point_exact": 1,
-                "location_point_city": 1,
-                "expected_salary": 1,
+                "interests": 1,
                 "job_role": 1,
                 "qualification": 1,
+                "location": 1,
+                "location_point_exact": 1,
+                "location_point_city": 1,
                 "duration": 1,
+                "duration_months": 1,
+                "expected_salary": 1,
+                "stipend": 1,
+                "compensation": 1,
                 "additional_support": 1,
-                "interests": 1
+                "work_mode": 1,
+                "preference.work_mode": 1,  # legacy
+                "geo": 1,
+                "created_at": 1,
+                "posted_at": 1,
+                "createdAt": 1,
             }
 
             cursor = self.internships_collection.find(base_filter, projection).limit(int(n))
             results = list(cursor)
-
-            logger.info(f"Found {len(results)} nearest internships using {geo_field} with preferences: {preference}")
+            logger.info(
+                "Found %d nearest internships using %s (prefs=%s, radius_km=%s)",
+                len(results),
+                geo_field,
+                {k: v for k, v in (preference or {}).items() if v},
+                max_distance_km,
+            )
             return results
 
         except Exception as e:
-            logger.error(f"Failed to find nearest internships: {e}")
+            logger.error("Failed to find nearest internships: %s", e)
             return []
 
     def find_internships_by_skills(self, skills: List[str], limit: int = 50) -> List[Dict[str, Any]]:
-        """Find internships matching specific skills."""
+        """Find internships matching specific skills (normalized + regex fallback)."""
         if self.internships_collection is None:
             logger.error("No collection available for skill search")
             return []
 
         try:
-            # Create regex patterns for each skill
-            skill_patterns = [f".*{skill}.*" for skill in skills]
+            skills_norm = [str(s).lower() for s in (skills or []) if s]
+            if not skills_norm:
+                return []
+
+            skill_regex = "|".join([f"\\b{r}\\b" for r in skills_norm])
+
             query = {
                 "$or": [
-                    {"skills": {"$in": skills}},
-                    {"title": {"$regex": "|".join(skill_patterns), "$options": "i"}},
-                    {"description": {"$regex": "|".join(skill_patterns), "$options": "i"}}
+                    {"skills": {"$in": skills_norm}},
+                    {"title": {"$regex": skill_regex, "$options": "i"}},
+                    {"description": {"$regex": skill_regex, "$options": "i"}},
                 ]
             }
 
-            cursor = self.internships_collection.find(query).limit(limit)
+            cursor = self.internships_collection.find(query, {"_id": 0}).limit(int(limit))
             results = list(cursor)
-            logger.info(f"Found {len(results)} internships matching skills: {skills}")
+            logger.info("Found %d internships matching skills: %s", len(results), skills_norm)
             return results
         except Exception as e:
-            logger.error(f"Failed to find internships by skills: {e}")
+            logger.error("Failed to find internships by skills: %s", e)
             return []
 
     def find_internships_by_sector(self, sectors: List[str], limit: int = 50) -> List[Dict[str, Any]]:
-        """Find internships in specific sectors."""
+        """Find internships in specific sectors (case-insensitive)."""
         if self.internships_collection is None:
             logger.error("No collection available for sector search")
             return []
 
         try:
-            query = {"sector": {"$in": sectors}}
-            cursor = self.internships_collection.find(query).limit(limit)
+            if not sectors:
+                return []
+            # Use regex OR for case-insensitive membership
+            regexes = [{"sector": {"$regex": f"^{str(s).lower()}$", "$options": "i"}} for s in sectors if s]
+            if not regexes:
+                return []
+
+            query = {"$or": regexes}
+            cursor = self.internships_collection.find(query, {"_id": 0}).limit(int(limit))
             results = list(cursor)
-            logger.info(f"Found {len(results)} internships in sectors: {sectors}")
+            logger.info("Found %d internships in sectors: %s", len(results), sectors)
             return results
         except Exception as e:
-            logger.error(f"Failed to find internships by sector: {e}")
+            logger.error("Failed to find internships by sector: %s", e)
             return []
 
     def get_collection_count(self) -> int:
         """Get total count of internships in collection."""
         if self.internships_collection is None:
             return 0
-
         try:
-            return self.internships_collection.count_documents({})
+            return int(self.internships_collection.count_documents({}))
         except Exception as e:
-            logger.error(f"Failed to get collection count: {e}")
+            logger.error("Failed to get collection count: %s", e)
             return 0
 
     def close(self):
@@ -290,6 +338,7 @@ class DatabaseManager:
         if self.client:
             self.client.close()
             logger.info("Closed MongoDB connection")
+
 
 # Global database manager instance
 db_manager = DatabaseManager()

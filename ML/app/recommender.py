@@ -2,25 +2,28 @@ import os
 import time
 import math
 import logging
+from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import List, Dict, Any, Set, Optional, Tuple
+from typing import List, Dict, Any, Set, Optional, Tuple, Iterable
 
 from app.preprocessing import (
     preprocess_student_profile,
     preprocess_internship,
     calculate_distance_km,
-    normalize_text
+    normalize_text,
 )
 from app.database import get_database
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------- Config ---------------------------------- #
-# Optional determinism for tests/debugging
 _SEED = os.getenv("RECOMMENDER_SEED")
 if _SEED is not None:
     import random
     random.seed(int(_SEED))
+
+# Primary geospatial field to use in DB nearest search
+DEFAULT_GEO_FIELD = os.getenv("GEO_NEAR_FIELD", "location_point_exact")
 
 # City coordinates mapping for the ML algorithm workflow
 CITY_COORDINATES: Dict[str, Dict[str, float]] = {
@@ -126,8 +129,32 @@ CITY_COORDINATES: Dict[str, Dict[str, float]] = {
     "Maheshtala": {"lat": 22.5086, "lon": 88.3253},
 }
 
-# Primary geospatial field to use in DB nearest search
-DEFAULT_GEO_FIELD = os.getenv("GEO_NEAR_FIELD", "location_point_exact")
+# ----------------------------- Types ---------------------------------- #
+Number = float
+
+@dataclass(frozen=True)
+class Weights:
+    """Relative weights should roughly sum to 1.0."""
+    skills: float = 0.30        # primary predictor of success
+    role: float = 0.20          # keeps titles aligned with intent
+    sector: float = 0.12        # industry context matters, but less than role
+    interests: float = 0.08     # mild nudge for long-term engagement
+    qualification: float = 0.06 # avoid over-filtering; treat as soft signal
+    salary: float = 0.10        # practical constraint users really feel
+    duration: float = 0.08      # internship/contract viability
+    support: float = 0.06       # mentorship/certificates/stipend as tie-breakers
+
+@dataclass
+class DistanceConfig:
+    penalty_per_km: float = 0.0018
+    max_penalty: float = 0.25
+
+@dataclass
+class RecommenderConfig:
+    weights: Weights = field(default_factory=Weights)
+    distance: DistanceConfig = field(default_factory=DistanceConfig)
+    radius_tiers_km: Tuple[int, ...] = (30, 60, 120, 240)
+    prefer_recent_days: int = 90  # tie-breaker if created_at exists
 
 # ------------------------ Core Recommender ---------------------------- #
 class Recommender:
@@ -135,29 +162,17 @@ class Recommender:
     Score & rank internships for a student. Performs:
       - Geospatial shortlist (Mongo $near)
       - Content scoring (skills/role/sector/etc.)
-      - Distance penalty + tie-break
+      - Distance penalty (+ remote/work-from-home handling)
+      - Deterministic tie-breaking (recent + stipend + distance)
     """
 
-    def __init__(self) -> None:
-        # Relative weights must sum to ~1 for readability (not strictly required)
-        self.weights: Dict[str, float] = {
-            "skills": 0.28,
-            "role": 0.14,
-            "sector": 0.14,
-            "interests": 0.10,
-            "qualification": 0.07,
-            "salary": 0.08,
-            "duration": 0.08,
-            "support": 0.07,
-            # distance handled as a penalty
-        }
+    def __init__(self, config: Optional[RecommenderConfig] = None) -> None:
+        self.cfg = config or RecommenderConfig()
 
-        # Distance penalty config
-        self.distance_penalty_per_km: float = 0.0018  # gentler slope
-        self.max_distance_penalty: float = 0.25
-
-        # Fallback radius tiers (km) for city->coords workflow (used for iterative broadening)
-        self.radius_tiers: List[int] = [30, 60, 120, 240]
+        # Optional sanity: warn if weights drift too far
+        total_w = sum(vars(self.cfg.weights).values())
+        if not (0.95 <= total_w <= 1.05):
+            logger.warning("Weights sum to %.3f (expected ~1.0)", total_w)
 
     # ---------------------- Similarity Components --------------------- #
     @staticmethod
@@ -170,26 +185,30 @@ class Recommender:
         return (inter / union) if union else 0.0
 
     @staticmethod
-    def _qual_category(q: str) -> Optional[str]:
-        qn = normalize_text(q)
-        if not qn:
-            return None
+    @lru_cache(maxsize=512)
+    def _qual_category_cached(qn: str) -> Optional[str]:
         buckets = {
-            "bachelor": ["b.tech", "b.e", "bsc", "b.sc", "bcom", "b.com", "ba", "b.a", "bachelor"],
-            "master": ["m.tech", "m.e", "msc", "m.sc", "mcom", "m.com", "ma", "m.a", "master"],
-            "diploma": ["diploma", "polytechnic", "iti"],
+            "bachelor": ("b.tech", "b.e", "bsc", "b.sc", "bcom", "b.com", "ba", "b.a", "bachelor"),
+            "master": ("m.tech", "m.e", "msc", "m.sc", "mcom", "m.com", "ma", "m.a", "master"),
+            "diploma": ("diploma", "polytechnic", "iti"),
         }
         for cat, keys in buckets.items():
             if any(k in qn for k in keys):
                 return cat
         return None
 
+    def _qual_category(self, q: str) -> Optional[str]:
+        qn = normalize_text(q or "")
+        if not qn:
+            return None
+        return self._qual_category_cached(qn)
+
     def calculate_qualification_match(self, student_qual: str, internship_qual: str) -> float:
         """Loose matching across exact, contains, and same-level categories."""
-        if not student_qual or not internship_qual:
+        s = normalize_text(student_qual or "")
+        i = normalize_text(internship_qual or "")
+        if not s or not i:
             return 0.0
-        s = normalize_text(student_qual)
-        i = normalize_text(internship_qual)
         if s == i:
             return 1.0
         if s and s in i:
@@ -200,25 +219,27 @@ class Recommender:
         return 0.0
 
     @staticmethod
-    def calculate_salary_match(student_salary: Optional[float], internship_salary: Optional[float]) -> float:
+    def calculate_salary_match(student_salary: Optional[Number], internship_salary: Optional[Number]) -> float:
         """Neutral if either missing; reward at/above expectation; soft degrade down to 0.0."""
         if not student_salary or not internship_salary:
             return 0.5
         if internship_salary >= student_salary:
             return 1.0
-        if internship_salary >= student_salary * 0.9:
+        ratio = internship_salary / student_salary
+        if ratio >= 0.9:
             return 0.9
-        if internship_salary >= student_salary * 0.8:
+        if ratio >= 0.8:
             return 0.8
         return 0.0
 
     @staticmethod
     def calculate_duration_match(student_min_duration: int, internship_duration: int) -> float:
         """1.0 if internship meets or exceeds student's minimum; otherwise taper (soft)."""
-        if internship_duration >= student_min_duration:
+        sm = max(0, int(student_min_duration or 0))
+        im = max(0, int(internship_duration or 0))
+        if im >= sm:
             return 1.0
-        # soft decay down to zero if 1 month below
-        diff = student_min_duration - internship_duration
+        diff = sm - im
         return max(0.0, 1.0 - 0.5 * diff)
 
     @staticmethod
@@ -237,20 +258,32 @@ class Recommender:
                 score += 0.5
         return min(score, 2.0)
 
-    def calculate_distance_penalty(self, distance_km: float, max_preferred_km: float) -> float:
-        """Linear penalty beyond preference with a cap."""
+    def calculate_distance_penalty(self, distance_km: float, max_preferred_km: float, work_mode: Optional[str]) -> float:
+        """
+        Linear penalty beyond preference with a cap. Remote-compatible roles lower/skip penalty.
+        work_mode: 'remote'|'hybrid'|'onsite' (case-insensitive). If remote, no penalty.
+        """
+        wm = (work_mode or "").strip().lower()
+        if wm == "remote":
+            return 0.0
         if distance_km <= max_preferred_km:
             return 0.0
         excess = distance_km - max_preferred_km
-        return min(excess * self.distance_penalty_per_km, self.max_distance_penalty)
+        base = excess * self.cfg.distance.penalty_per_km
+        # hybrid jobs take half distance penalty
+        if wm == "hybrid":
+            base *= 0.5
+        return min(base, self.cfg.distance.max_penalty)
 
     # --------------------------- Scoring ------------------------------ #
     def score_internship(self, student: Dict[str, Any], internship: Dict[str, Any]) -> Dict[str, Any]:
         """Compute a composite score and attach explanation + distance."""
-        student_skills = {normalize_text(s) for s in student.get("skills", [])}
-        internship_skills = {normalize_text(s) for s in internship.get("skills", [])}
-        student_interests = {normalize_text(s) for s in student.get("interests", [])}
-        internship_interests = {normalize_text(s) for s in internship.get("interests", [])}
+        w = self.cfg.weights
+
+        student_skills = {normalize_text(s) for s in (student.get("skills") or []) if s}
+        internship_skills = {normalize_text(s) for s in (internship.get("skills") or []) if s}
+        student_interests = {normalize_text(s) for s in (student.get("interests") or []) if s}
+        internship_interests = {normalize_text(s) for s in (internship.get("interests") or []) if s}
 
         skills_score = self.calculate_jaccard_similarity(student_skills, internship_skills)
         interests_score = self.calculate_jaccard_similarity(student_interests, internship_interests)
@@ -260,30 +293,41 @@ class Recommender:
 
         qual_score = self.calculate_qualification_match(student.get("education", ""), internship.get("qualification", ""))
 
-        salary_score = self.calculate_salary_match(student.get("expected_salary"), internship.get("expected_salary"))
-        duration_score = self.calculate_duration_match(
-            int(student.get("min_duration_months", 1) or 1),
-            int(internship.get("duration", {}).get("months", 1) or 1),
+        # Treat any of these stipend fields as salary if present
+        i_salary = (
+            internship.get("expected_salary")
+            or internship.get("stipend")
+            or (internship.get("compensation", {}) or {}).get("monthly")
         )
-        support_score = self.calculate_support_bonus(internship.get("additional_support", []), student.get("additional_preferences", []))
+        salary_score = self.calculate_salary_match(student.get("expected_salary"), i_salary)
+
+        i_duration = (internship.get("duration", {}) or {}).get("months") or internship.get("duration_months") or 0
+        duration_score = self.calculate_duration_match(int(student.get("min_duration_months", 1) or 1), int(i_duration or 0))
+
+        support_score = self.calculate_support_bonus(internship.get("additional_support", []) or [], student.get("additional_preferences", []) or [])
 
         # Distance
-        s_lat = float(student.get("location", {}).get("lat", 0.0) or 0.0)
-        s_lon = float(student.get("location", {}).get("lon", 0.0) or 0.0)
-        i_lat = float(internship.get("location", {}).get("lat", 0.0) or 0.0)
-        i_lon = float(internship.get("location", {}).get("lon", 0.0) or 0.0)
+        s_loc = student.get("location", {}) or {}
+        s_lat = float(s_loc.get("lat") or 0.0)
+        s_lon = float(s_loc.get("lon") or 0.0)
+        i_loc = internship.get("location", {}) or {}
+        i_lat = float(i_loc.get("lat") or 0.0)
+        i_lon = float(i_loc.get("lon") or 0.0)
         distance_km = calculate_distance_km(s_lat, s_lon, i_lat, i_lon)
-        distance_penalty = self.calculate_distance_penalty(distance_km, float(student.get("max_distance_km", 50)))
+
+        work_mode = normalize_text(internship.get("work_mode", "") or internship.get("mode", ""))
+        max_pref_km = float(s_loc.get("max_distance_km", 50) or 50)
+        distance_penalty = self.calculate_distance_penalty(distance_km, max_pref_km, work_mode)
 
         total = (
-            self.weights["skills"] * skills_score
-            + self.weights["role"] * role_score
-            + self.weights["sector"] * sector_score
-            + self.weights["interests"] * interests_score
-            + self.weights["qualification"] * qual_score
-            + self.weights["salary"] * salary_score
-            + self.weights["duration"] * duration_score
-            + self.weights["support"] * support_score
+            w.skills * skills_score
+            + w.role * role_score
+            + w.sector * sector_score
+            + w.interests * interests_score
+            + w.qualification * qual_score
+            + w.salary * salary_score
+            + w.duration * duration_score
+            + w.support * support_score
             - distance_penalty
         )
         total = max(0.0, min(1.0, total))  # clamp to [0,1]
@@ -300,142 +344,104 @@ class Recommender:
         if salary_score >= 0.8:
             tags.append("Salary meets expectation")
         if duration_score >= 1.0:
-            tags.append(f"Duration fits ({internship.get('duration', {}).get('months', 0)} months)")
+            tags.append(f"Duration fits ({int(i_duration or 0)} months)")
         if support_score > 0:
             tags.append("Valuable support offered")
 
-        pref_km = float(student.get("max_distance_km", 50))
-        if distance_km <= pref_km:
-            tags.append(f"Within {int(pref_km)} km")
+        if work_mode == "remote":
+            tags.append("Remote-friendly (no distance penalty)")
+        elif work_mode == "hybrid":
+            tags.append("Hybrid (reduced distance penalty)")
+
+        if distance_km <= max_pref_km:
+            tags.append(f"Within {int(max_pref_km)} km")
         else:
             tags.append(f"{distance_km:.0f} km (beyond preference)")
 
-        # Add missing fields with default values to match the Internship model
-        internship_with_defaults = internship.copy()
+        # Ensure required fields exist for UI/model consumers
+        internship_with_defaults = dict(internship)
         if "description" not in internship_with_defaults:
-            internship_with_defaults["description"] = f"{internship.get('title', 'Internship')} opportunity in {internship.get('sector', 'Technology')} sector"
+            internship_with_defaults["description"] = f"{internship.get('title', 'Internship')} opportunity in {internship.get('sector', 'Technology')}"
+
         if "geo" not in internship_with_defaults:
-            # Create a basic GeoJSON point from the location coordinates
-            lat = internship.get("location", {}).get("lat", 0.0)
-            lon = internship.get("location", {}).get("lon", 0.0)
-            internship_with_defaults["geo"] = {
-                "type": "Point",
-                "coordinates": [lon, lat]  # GeoJSON format: [longitude, latitude]
-            }
+            lat = i_loc.get("lat", 0.0)
+            lon = i_loc.get("lon", 0.0)
+            internship_with_defaults["geo"] = {"type": "Point", "coordinates": [lon, lat]}
 
         return {
             "internship": internship_with_defaults,
             "score": total,
-            "distance_km": distance_km,
+            "distance_km": float(distance_km),
             "explanation_tags": tags,
         }
 
     # ------------------------- Data Access ---------------------------- #
-    def shortlist_by_location(self, student: Dict[str, Any], radius_km: int) -> List[Dict[str, Any]]:
-        """
-        Prefer DB-level geospatial shortlist using an indexed GeoJSON field.
-        Falls back to empty list if coordinates missing or DB returns nothing.
-        """
+    def _nearest(self, *, lat: float, lon: float, preference: Dict[str, Any], radius_km: int, n: int = 200) -> List[Dict[str, Any]]:
         db = get_database()
-        s_loc = student.get("location", {}) or {}
-        lat = s_loc.get("lat")
-        lon = s_loc.get("lon")
-
-        if lat is None or lon is None:
-            logger.warning("Student location missing; cannot shortlist by location.")
-            return []
-
         try:
-            internships = db.find_internships_by_location(
-                lat=float(lat),
-                lon=float(lon),
-                max_distance_km=int(radius_km),
-                limit=200,
-                geo_field=DEFAULT_GEO_FIELD,  # prefer exact points
-            )
-            logger.info("Shortlisted %d internships within %dkm via geo index '%s'",
-                        len(internships), radius_km, DEFAULT_GEO_FIELD)
-            return internships
+            return db.find_nearest_internships(
+                user_lat=lat,
+                user_lon=lon,
+                preference=preference,
+                n=n,
+                geo_field=DEFAULT_GEO_FIELD,
+                max_distance_km=radius_km,
+            ) or []
         except Exception as e:
-            logger.exception("Location shortlist failed: %s", e)
+            logger.exception("DB nearest failed: %s", e)
             return []
 
     # ----------------------- Orchestration ---------------------------- #
     def recommend_internships(self, student_profile: Dict[str, Any], top_k: int = 5) -> Dict[str, Any]:
         """
         End-to-end recommend: geo shortlist -> content scoring -> top_k.
-        Returns metadata including timing, total_found, radius used.
-        Implements fallback logic for no matches by expanding radius and relaxing preferences.
+        Fallback logic expands radius & relaxes preferences if needed.
+        Deterministic tie-break: score desc, created_at desc, stipend desc, distance asc.
         """
         start_time = time.time()
 
-        # 1. Get city coordinates from student profile or fallback to city mapping
-        city = student_profile.get("location", {}).get("city", "")
-        coords = CITY_COORDINATES.get(city)
-        if coords:
-            lat, lon = coords["lat"], coords["lon"]
-        else:
-            lat = student_profile.get("location", {}).get("lat")
-            lon = student_profile.get("location", {}).get("lon")
-
+        # 1) resolve coordinates (city mapping as fallback)
+        loc = (student_profile.get("location") or {})
+        city = (loc.get("city") or "").strip()
+        coords = CITY_COORDINATES.get(city) if city else None
+        lat = (coords or loc).get("lat")
+        lon = (coords or loc).get("lon")
         if lat is None or lon is None:
             logger.warning("Student location missing; cannot recommend internships.")
-            return {"recommendations": [], "total_found": 0, "radius_used_km": 0, "time_taken_s": 0.0}
+            return {"recommendations": [], "total_found": 0, "search_radius_used": 0, "processing_time_ms": 0.0}
 
-        # Extract preferences from nested structure
-        preference = student_profile.get("preference", {})
-        sector = None
-        skills = None
-        preferred_work_mode = None
-        min_duration_months = 1
-        preferred_job_roles = []
-        preferred_sectors = []
+        # 2) extract preferences
+        preference = student_profile.get("preference") or {}
+        preferred_sectors = preference.get("preferred_sectors") or []
+        sector_primary = preferred_sectors[0] if preferred_sectors else preference.get("sector")
+        preferred_job_roles = preference.get("preferred_job_roles") or []
+        skills = student_profile.get("skills") or []
+        preferred_work_mode = preference.get("work_mode") or None
+        min_duration_months = int(preference.get("duration_min_months", 1) or 1)
 
-        if preference:
-            sector = preference.get("preferred_sectors")
-            if sector and isinstance(sector, list):
-                sector = sector[0] if sector else None
-            skills = student_profile.get("skills")
-            preferred_work_mode = preference.get("work_mode") or preference.get("work_mode") or None
-            min_duration_months = preference.get("duration_min_months", 1)
-            preferred_job_roles = preference.get("preferred_job_roles", [])
-            preferred_sectors = preference.get("preferred_sectors", [])
+        pref_payload = {
+            "sector": sector_primary,
+            "skills": skills,
+            "work_mode": preferred_work_mode,
+            "min_duration_months": min_duration_months,
+            "preferred_job_roles": preferred_job_roles,
+            "preferred_sectors": preferred_sectors,
+        }
 
-        # 2. Use DB to find nearest internships with preferences
-        db = get_database()
-        internships = []
+        # 3) shortlist with progressive radius
         radius_used = 0
-        fallback_note = ""
-        max_radius = self.radius_tiers[-1] if self.radius_tiers else 240
-
-        # Try expanding radius tiers until internships found or max radius reached
-        for radius in self.radius_tiers:
-            internships = db.find_nearest_internships(
-                user_lat=lat,
-                user_lon=lon,
-                preference={
-                    "sector": sector,
-                    "skills": skills,
-                    "work_mode": preferred_work_mode,
-                    "min_duration_months": min_duration_months,
-                    "preferred_job_roles": preferred_job_roles,
-                    "preferred_sectors": preferred_sectors,
-                },
-                n=200,
-                geo_field=DEFAULT_GEO_FIELD,
-                max_distance_km=radius,
-            )
-            if internships:
-                radius_used = radius
+        all_candidates: List[Dict[str, Any]] = []
+        for r in self.cfg.radius_tiers_km:
+            all_candidates = self._nearest(lat=float(lat), lon=float(lon), preference=pref_payload, radius_km=r)
+            if all_candidates:
+                radius_used = r
                 break
 
-        # If no internships found, relax preferences and try again with max radius
-        if not internships:
-            fallback_note = (
-                "No internships found within preferred radius and preferences. "
-                "Relaxing preferences for broader recommendations."
-            )
-            relaxed_preferences = {
+        # 4) relax if nothing found
+        fallback_note = ""
+        if not all_candidates:
+            fallback_note = "No exact matches found; expanded search with relaxed preferences."
+            relaxed = {
                 "sector": None,
                 "skills": None,
                 "work_mode": None,
@@ -443,61 +449,94 @@ class Recommender:
                 "preferred_job_roles": [],
                 "preferred_sectors": [],
             }
-            internships = db.find_nearest_internships(
-                user_lat=lat,
-                user_lon=lon,
-                preference=relaxed_preferences,
-                n=200,
-                geo_field=DEFAULT_GEO_FIELD,
-                max_distance_km=max_radius,
-            )
-            radius_used = max_radius
+            max_r = self.cfg.radius_tiers_km[-1] if self.cfg.radius_tiers_km else 240
+            all_candidates = self._nearest(lat=float(lat), lon=float(lon), preference=relaxed, radius_km=max_r, n=300)
+            radius_used = max_r
 
-        # 3. Prepare student data for scoring
+        # 5) build student vector for scoring
         student_for_scoring = {
-            "skills": skills or [],
+            "skills": skills,
             "job_role": preferred_job_roles[0] if preferred_job_roles else "",
-            "sector": preferred_sectors[0] if preferred_sectors else sector or "",
+            "sector": preferred_sectors[0] if preferred_sectors else (sector_primary or ""),
             "interests": student_profile.get("interests", []),
             "education": student_profile.get("qualification", ""),
             "expected_salary": student_profile.get("expected_salary"),
             "min_duration_months": min_duration_months,
-            "additional_preferences": [],  # Could be extended
+            "additional_preferences": preference.get("additional_preferences", []),
             "location": {
-                "lat": lat,
-                "lon": lon,
-                "max_distance_km": student_profile.get("location", {}).get("max_distance_km", 50),
+                "lat": float(lat),
+                "lon": float(lon),
+                "max_distance_km": loc.get("max_distance_km", 50),
             },
         }
 
-        # 4. Score and rank internships
-        scored = []
-        for internship in internships:
-            score_data = self.score_internship(student_for_scoring, internship)
-            scored.append(score_data)
+        # 6) score
+        scored: List[Dict[str, Any]] = []
+        for internship in all_candidates:
+            try:
+                scored.append(self.score_internship(student_for_scoring, internship))
+            except Exception as e:
+                logger.exception("Scoring failed for internship id=%s: %s", internship.get("id"), e)
 
-        scored.sort(key=lambda x: x["score"], reverse=True)
-        top_recommendations = scored[:top_k]
+        # 7) rank with deterministic tie-breakers
+        def _created_at_ts(it: Dict[str, Any]) -> float:
+            # try a few common schema variants
+            meta = it.get("internship", {})
+            created = meta.get("created_at") or meta.get("posted_at") or meta.get("createdAt")
+            if isinstance(created, (int, float)):
+                return float(created)
+            # ISO string?
+            if isinstance(created, str):
+                try:
+                    # naive parse: YYYY-MM-DD...
+                    parts = created.split("T")[0].split("-")
+                    if len(parts) >= 3:
+                        y, m, d = [int(x) for x in parts[:3]]
+                        return (y * 372) + (m * 31) + d  # monotonic-ish without dateutil
+                except Exception:
+                    return 0.0
+            return 0.0
 
-        time_taken = time.time() - start_time
+        def _stipend_val(it: Dict[str, Any]) -> float:
+            i = it.get("internship", {})
+            return float(
+                i.get("expected_salary")
+                or i.get("stipend")
+                or (i.get("compensation", {}) or {}).get("monthly", 0.0)
+                or 0.0
+            )
 
-        # Add fallback note to recommendations if applicable
+        scored.sort(
+            key=lambda x: (
+                -x["score"],
+                -_created_at_ts(x),
+                -_stipend_val(x),
+                x["distance_km"],
+            )
+        )
+
+        top_recommendations = scored[: max(0, int(top_k))]
+
         if fallback_note:
             for rec in top_recommendations:
                 rec.setdefault("explanation_tags", []).append("Fallback: preferences relaxed")
-            top_recommendations.append({
-                "internship": None,
-                "score": 0.0,
-                "distance_km": 0.0,
-                "explanation_tags": [fallback_note],
-            })
+            # surface the note as a meta row if nothing at all found
+            if not top_recommendations:
+                top_recommendations.append({
+                    "internship": None,
+                    "score": 0.0,
+                    "distance_km": 0.0,
+                    "explanation_tags": [fallback_note],
+                })
+
+        elapsed_ms = (time.time() - start_time) * 1000.0
 
         return {
             "student_id": student_profile.get("id", ""),
             "recommendations": top_recommendations,
-            "total_found": len(internships),
+            "total_found": len(all_candidates),
             "search_radius_used": radius_used,
-            "processing_time_ms": time_taken * 1000,  # Convert seconds to milliseconds
+            "processing_time_ms": elapsed_ms,
         }
 
 # Create a global recommender instance
