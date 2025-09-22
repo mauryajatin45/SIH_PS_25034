@@ -1,5 +1,6 @@
 const Candidate = require('../models/Candidate');
 const Internship = require('../models/Internship');
+const MLInternship = require('../models/MLInternship');
 const { calculateMatchScore } = require('../utils/matchingAlgorithm');
 const axios = require('axios');
 
@@ -426,8 +427,167 @@ const getFallbackRecommendations = async (candidate) => {
   return recommendations.slice(0, 10); // Return top 10
 };
 
+// Get all opportunities from ML database with pagination
+const getAllOpportunities = async (req, res) => {
+  try {
+    const { candidate_id, filters, page = 1, limit = 10 } = req.body;
+
+    // Get candidate profile for filtering
+    let candidate = null;
+    if (candidate_id) {
+      candidate = await Candidate.findOne({ user: candidate_id });
+    }
+
+    // Build filter based on candidate preferences and optional filters
+    const baseFilter = {};
+
+    // Log candidate preferences for debugging
+    console.log('=== ALL OPPORTUNITIES DEBUG ===');
+    console.log('Candidate:', candidate ? {
+      id: candidate._id,
+      location: candidate.location,
+      remote_ok: candidate.remote_ok,
+      preferred_job_roles: candidate.preferred_job_roles,
+      preferred_sectors: candidate.preferred_sectors
+    } : 'No candidate');
+
+    console.log('Applied filters:', filters);
+
+    // Apply candidate preferences first (job role priority)
+    if (candidate && candidate.preferred_job_roles && candidate.preferred_job_roles.length > 0) {
+      // For ML data, job_role is a single string, so we need to use regex matching
+      const jobRoleRegex = candidate.preferred_job_roles.join('|');
+      baseFilter.job_role = { $regex: jobRoleRegex, $options: 'i' };
+      console.log('Applied job_role filter:', jobRoleRegex);
+    }
+
+    // Apply location filter second
+    if (candidate && candidate.location && !candidate.remote_ok) {
+      baseFilter['location.city'] = candidate.location;
+      console.log('Applied location filter:', candidate.location);
+    }
+
+    // Apply additional filters if provided
+    if (filters) {
+      if (filters.sector && filters.sector.trim()) {
+        baseFilter.sector = new RegExp(filters.sector, 'i');
+        console.log('Applied sector filter:', filters.sector);
+      }
+      if (filters.location && filters.location.trim()) {
+        baseFilter['location.city'] = new RegExp(filters.location, 'i');
+        console.log('Applied location filter:', filters.location);
+      }
+      if (filters.remote !== undefined) {
+        if (filters.remote) {
+          baseFilter['location.city'] = 'Remote';
+          console.log('Applied remote filter: Remote only');
+        } else {
+          baseFilter['location.city'] = { $ne: 'Remote' };
+          console.log('Applied remote filter: Exclude remote');
+        }
+      }
+      if (filters.min_stipend && parseInt(filters.min_stipend) > 0) {
+        baseFilter.expected_salary = { $gte: parseInt(filters.min_stipend) };
+        console.log('Applied min_stipend filter:', filters.min_stipend);
+      }
+      if (filters.max_duration && parseInt(filters.max_duration) < 52) {
+        baseFilter.duration_months = { $lte: parseInt(filters.max_duration) };
+        console.log('Applied max_duration filter:', filters.max_duration);
+      }
+    }
+
+    console.log('Final baseFilter:', JSON.stringify(baseFilter, null, 2));
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = parseInt(limit);
+
+    // First, let's check if ML database has any data at all
+    const totalAllDocuments = await MLInternship.countDocuments({});
+    console.log('Total documents in ML database:', totalAllDocuments);
+
+    // Check a few sample documents to see the structure
+    const sampleDocs = await MLInternship.find({}).limit(3).select('id title job_role sector location.city expected_salary');
+    console.log('Sample ML documents:', JSON.stringify(sampleDocs, null, 2));
+
+    // Get total count for pagination with current filter
+    const totalCount = await MLInternship.countDocuments(baseFilter);
+    console.log('Total count with current filter:', totalCount);
+
+    // If no results with filter, try without job_role filter to see if that's the issue
+    if (totalCount === 0 && baseFilter.job_role) {
+      console.log('No results with job_role filter, trying without it...');
+      const filterWithoutJobRole = { ...baseFilter };
+      delete filterWithoutJobRole.job_role;
+      const totalCountWithoutJobRole = await MLInternship.countDocuments(filterWithoutJobRole);
+      console.log('Total count without job_role filter:', totalCountWithoutJobRole);
+
+      if (totalCountWithoutJobRole > 0) {
+        console.log('Job role filter is causing the issue! Using filter without job_role restriction.');
+        // Use the filter without job_role restriction
+        var mlInternships = await MLInternship.find(filterWithoutJobRole)
+          .sort({ created_at: -1 })
+          .skip(skip)
+          .limit(limitNum);
+      } else {
+        var mlInternships = [];
+      }
+    } else {
+      var mlInternships = await MLInternship.find(baseFilter)
+        .sort({ created_at: -1 })
+        .skip(skip)
+        .limit(limitNum);
+    }
+
+    // Transform ML internships to frontend format
+    const recommendations = mlInternships.map(internship => {
+      return {
+        id: internship.id,
+        title: internship.title,
+        organization: internship.job_role, // Using job_role as organization since ML data doesn't have company
+        location: internship.location.city,
+        stipend: internship.expected_salary,
+        duration_weeks: Math.ceil(internship.duration_months * 4.33), // Convert months to weeks
+        start_window: 'Flexible',
+        sector: internship.sector,
+        skills_matched: internship.skills || [],
+        match_score: 0, // No match score for all opportunities
+        explanations: [], // No explanations for all opportunities
+        language_supported: ['English'], // Default
+        apply_url: '#', // ML data doesn't provide apply URL
+        description: internship.description,
+        responsibilities: [`Work as ${internship.job_role}`],
+        required_skills: internship.skills || [],
+        deadline: null
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        recommendations,
+        total_count: totalCount,
+        current_page: parseInt(page),
+        total_pages: Math.ceil(totalCount / limitNum),
+        has_next: skip + limitNum < totalCount,
+        has_prev: parseInt(page) > 1,
+        filters_applied: filters || {}
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error.message
+      }
+    });
+  }
+};
+
 module.exports = {
   getRecommendations,
   getRecommendation,
-  getMLRecommendations
+  getMLRecommendations,
+  getAllOpportunities
 };

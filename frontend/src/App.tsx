@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from
 import WelcomePage from "./pages/WelcomePage";
 import ProfilePage from "./pages/ProfilePage";
 import ResultsPage from "./pages/ResultsPage";
+import AllOpportunitiesPage from "./pages/AllOpportunitiesPage";
 import InternshipDetailsPage from "./pages/InternshipDetailsPage";
 import FeedbackPage from "./pages/FeedbackPage";
 import AboutPage from "./pages/AboutPage";
@@ -32,6 +33,7 @@ function AppRoutes() {
       <Route path="/profile" element={<ProfilePage />} />
       <Route path="/results" element={<ResultsPage />} />
       <Route path="/result" element={<ResultsPage />} />
+      <Route path="/all-opportunities" element={<AllOpportunitiesPage />} />
       <Route path="/internship/:id" element={<InternshipDetailsPage />} />
       <Route path="/feedback" element={<FeedbackPage />} />
       <Route path="/about" element={<AboutPage />} />

@@ -29,6 +29,13 @@ export default function ResultsPage() {
   });
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
+  // Pagination state for "all" tab
+  const [allOpportunitiesPage, setAllOpportunitiesPage] = useState(1);
+  const [allOpportunitiesTotalPages, setAllOpportunitiesTotalPages] = useState(1);
+  const [allOpportunitiesTotalCount, setAllOpportunitiesTotalCount] = useState(0);
+  const [allOpportunitiesHasNext, setAllOpportunitiesHasNext] = useState(false);
+  const [allOpportunitiesHasPrev, setAllOpportunitiesHasPrev] = useState(false);
+
   const isOnline = useOnlineStatus();
 
   useEffect(() => {
@@ -135,15 +142,125 @@ export default function ResultsPage() {
           setRecommendations(list as any);
         }
       } else {
-        // Load all opportunities (regular recommendations)
-        const resp = await apiClient.getRecommendations(userId, {
+        // Load all opportunities using the new API
+        try {
+          const resp = await apiClient.getAllOpportunities(userId, {
+            sector: filters.sector,
+            location: filters.location,
+            remote: filters.remote,
+            min_stipend: filters.minStipend.toString(),
+            max_duration: filters.maxDuration.toString(),
+          }, 1, 10); // Default to page 1, limit 10
+
+          console.log('All opportunities API response:', resp); // Debug log
+
+          if (resp.success && resp.data && resp.data.recommendations) {
+            console.log('Recommendations data:', resp.data.recommendations); // Debug log
+            setRecommendations(resp.data.recommendations as any);
+            setAllOpportunitiesPage(resp.data.current_page);
+            setAllOpportunitiesTotalPages(resp.data.total_pages);
+            setAllOpportunitiesTotalCount(resp.data.total_count);
+            setAllOpportunitiesHasNext(resp.data.has_next);
+            setAllOpportunitiesHasPrev(resp.data.has_prev);
+          } else {
+            console.error('Invalid response structure:', resp); // Debug log
+            // Fallback to regular recommendations if new API fails
+            const fallbackResp = await apiClient.getRecommendations(userId, {
+              sector: filters.sector,
+              location: filters.location,
+              remote: filters.remote,
+              min_stipend: filters.minStipend,
+              max_duration: filters.maxDuration,
+            });
+            let list = (fallbackResp as any)?.data?.recommendations || [];
+            if (!Array.isArray(list) || list.length === 0) {
+              try {
+                const completed = localStorage.getItem('udaan_profile_complete');
+                const profileData = completed ? JSON.parse(completed) : (profile || {});
+                const mock = await mockApi.getRecommendations(profileData as any);
+                list = mock as any;
+              } catch {}
+            }
+            setRecommendations(list as any);
+          }
+        } catch (allOpportunitiesError) {
+          console.error('All opportunities API failed:', allOpportunitiesError); // Debug log
+          // Fallback to regular recommendations
+          const resp = await apiClient.getRecommendations(userId, {
+            sector: filters.sector,
+            location: filters.location,
+            remote: filters.remote,
+            min_stipend: filters.minStipend,
+            max_duration: filters.maxDuration,
+          });
+          let list = (resp as any)?.data?.recommendations || [];
+          if (!Array.isArray(list) || list.length === 0) {
+            try {
+              const completed = localStorage.getItem('udaan_profile_complete');
+              const profileData = completed ? JSON.parse(completed) : (profile || {});
+              const mock = await mockApi.getRecommendations(profileData as any);
+              list = mock as any;
+            } catch {}
+          }
+          setRecommendations(list as any);
+        }
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load recommendations. Please check your connection and try again.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAllOpportunities = async (page: number) => {
+    const userJson = localStorage.getItem('user');
+    const token = localStorage.getItem('token');
+    if (!token || !userJson) {
+      setError('Please login first.');
+      setLoading(false);
+      return;
+    }
+    const user = (() => { try { return JSON.parse(userJson || 'null'); } catch { return null; } })();
+    const userId = user?.id || user?._id;
+    if (!userId) {
+      setError('Invalid user session. Please login again.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const resp = await apiClient.getAllOpportunities(userId, {
+        sector: filters.sector,
+        location: filters.location,
+        remote: filters.remote,
+        min_stipend: filters.minStipend.toString(),
+        max_duration: filters.maxDuration.toString(),
+      }, page, 10);
+
+      if (resp.success) {
+        setRecommendations(resp.data.recommendations as any);
+        setAllOpportunitiesPage(resp.data.current_page);
+        setAllOpportunitiesTotalPages(resp.data.total_pages);
+        setAllOpportunitiesTotalCount(resp.data.total_count);
+        setAllOpportunitiesHasNext(resp.data.has_next);
+        setAllOpportunitiesHasPrev(resp.data.has_prev);
+      } else {
+        // Fallback to regular recommendations if new API fails
+        const fallbackResp = await apiClient.getRecommendations(userId, {
           sector: filters.sector,
           location: filters.location,
           remote: filters.remote,
           min_stipend: filters.minStipend,
           max_duration: filters.maxDuration,
         });
-        let list = (resp as any)?.data?.recommendations || [];
+        let list = (fallbackResp as any)?.data?.recommendations || [];
         if (!Array.isArray(list) || list.length === 0) {
           try {
             const completed = localStorage.getItem('udaan_profile_complete');
@@ -154,12 +271,26 @@ export default function ResultsPage() {
         }
         setRecommendations(list as any);
       }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to load recommendations. Please check your connection and try again.'
-      );
+    } catch (allOpportunitiesError) {
+      console.log('All opportunities API failed, using fallback:', allOpportunitiesError);
+      // Fallback to regular recommendations
+      const resp = await apiClient.getRecommendations(userId, {
+        sector: filters.sector,
+        location: filters.location,
+        remote: filters.remote,
+        min_stipend: filters.minStipend,
+        max_duration: filters.maxDuration,
+      });
+      let list = (resp as any)?.data?.recommendations || [];
+      if (!Array.isArray(list) || list.length === 0) {
+        try {
+          const completed = localStorage.getItem('udaan_profile_complete');
+          const profileData = completed ? JSON.parse(completed) : (profile || {});
+          const mock = await mockApi.getRecommendations(profileData as any);
+          list = mock as any;
+        } catch {}
+      }
+      setRecommendations(list as any);
     } finally {
       setLoading(false);
     }
@@ -178,11 +309,54 @@ export default function ResultsPage() {
   };
 
   const filteredRecommendations = recommendations.filter((intern) => {
-    if (filters.sector && intern.sector !== filters.sector) return false;
-    if (filters.location && !intern.location.toLowerCase().includes(filters.location.toLowerCase())) return false;
-    if (filters.remote && intern.location !== 'Remote') return false;
-    if (intern.stipend < filters.minStipend) return false;
-    if (intern.duration_weeks > filters.maxDuration) return false;
+    console.log('Filtering internship:', intern); // Debug log
+    console.log('Current filters:', filters); // Debug log
+
+    // Handle case where intern data might be malformed
+    if (!intern || typeof intern !== 'object') {
+      console.warn('Invalid internship data:', intern);
+      return false;
+    }
+
+    // Apply sector filter - handle both regular and ML data structures
+    if (filters.sector && intern.sector && intern.sector !== filters.sector) {
+      console.log('Filtered out by sector:', intern.sector, '!=', filters.sector);
+      return false;
+    }
+
+    // Apply location filter - handle both regular and ML data structures
+    const location = intern.location?.city || intern.location || '';
+    if (filters.location && location) {
+      const locationMatch = location.toLowerCase().includes(filters.location.toLowerCase());
+      if (!locationMatch) {
+        console.log('Filtered out by location:', location, 'does not include', filters.location);
+        return false;
+      }
+    }
+
+    // Apply remote filter - handle both regular and ML data structures
+    if (filters.remote && location && location !== 'Remote') {
+      console.log('Filtered out by remote:', location, '!= Remote');
+      return false;
+    }
+
+    // Apply stipend filter - handle both expected_salary (ML) and stipend (regular)
+    const stipend = intern.expected_salary || intern.stipend || 0;
+    if (stipend < filters.minStipend) {
+      console.log('Filtered out by stipend:', stipend, '<', filters.minStipend);
+      return false;
+    }
+
+    // Apply duration filter - handle both duration_months (ML) and duration_weeks (regular)
+    const durationWeeks = intern.duration_months
+      ? Math.ceil(intern.duration_months * 4.33) // Convert months to weeks
+      : intern.duration_weeks || 0;
+    if (durationWeeks > filters.maxDuration) {
+      console.log('Filtered out by duration:', durationWeeks, '>', filters.maxDuration);
+      return false;
+    }
+
+    console.log('Internship passed all filters:', intern);
     return true;
   });
 
@@ -408,6 +582,83 @@ export default function ResultsPage() {
                     isSaved={savedInternships.includes(internship.id)}
                   />
                 ))}
+
+                {/* Pagination for "all" tab */}
+                {activeTab === 'all' && allOpportunitiesTotalPages > 1 && (
+                  <div className="flex items-center justify-between bg-white px-4 py-3 rounded-lg shadow-sm border border-gray-200">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => {
+                          if (allOpportunitiesHasPrev) {
+                            setAllOpportunitiesPage(prev => prev - 1);
+                            loadAllOpportunities(allOpportunitiesPage - 1);
+                          }
+                        }}
+                        disabled={!allOpportunitiesHasPrev}
+                        className={`px-3 py-2 text-sm font-medium rounded-md ${
+                          allOpportunitiesHasPrev
+                            ? 'text-orange-600 bg-orange-50 hover:bg-orange-100'
+                            : 'text-gray-400 bg-gray-50 cursor-not-allowed'
+                        }`}
+                      >
+                        Previous
+                      </button>
+
+                      <div className="flex items-center space-x-1">
+                        {Array.from({ length: Math.min(5, allOpportunitiesTotalPages) }, (_, i) => {
+                          let pageNum;
+                          if (allOpportunitiesTotalPages <= 5) {
+                            pageNum = i + 1;
+                          } else if (allOpportunitiesPage <= 3) {
+                            pageNum = i + 1;
+                          } else if (allOpportunitiesPage >= allOpportunitiesTotalPages - 2) {
+                            pageNum = allOpportunitiesTotalPages - 4 + i;
+                          } else {
+                            pageNum = allOpportunitiesPage - 2 + i;
+                          }
+
+                          return (
+                            <button
+                              key={pageNum}
+                              onClick={() => {
+                                setAllOpportunitiesPage(pageNum);
+                                loadAllOpportunities(pageNum);
+                              }}
+                              className={`px-3 py-2 text-sm font-medium rounded-md ${
+                                pageNum === allOpportunitiesPage
+                                  ? 'text-white bg-orange-500'
+                                  : 'text-gray-700 bg-white hover:bg-gray-50'
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (allOpportunitiesHasNext) {
+                            setAllOpportunitiesPage(prev => prev + 1);
+                            loadAllOpportunities(allOpportunitiesPage + 1);
+                          }
+                        }}
+                        disabled={!allOpportunitiesHasNext}
+                        className={`px-3 py-2 text-sm font-medium rounded-md ${
+                          allOpportunitiesHasNext
+                            ? 'text-orange-600 bg-orange-50 hover:bg-orange-100'
+                            : 'text-gray-400 bg-gray-50 cursor-not-allowed'
+                        }`}
+                      >
+                        Next
+                      </button>
+                    </div>
+
+                    <div className="text-sm text-gray-600">
+                      Showing {((allOpportunitiesPage - 1) * 10) + 1}-{Math.min(allOpportunitiesPage * 10, allOpportunitiesTotalCount)} of {allOpportunitiesTotalCount} opportunities
+                    </div>
+                  </div>
+                )}
 
                 <div className="text-center py-8 border-t border-gray-200">
                   <p className="text-gray-600 mb-4">How are these recommendations?</p>

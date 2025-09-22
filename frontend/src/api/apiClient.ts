@@ -117,6 +117,11 @@ export const apiClient = {
       body: JSON.stringify({ candidate_id: candidateId }),
     }),
   getRecommendation: (id: string) => request(`/recommendations/${id}`, { method: 'GET' }),
+  getAllOpportunities: (candidateId: string, filters?: Record<string, any>, page: number = 1, limit: number = 10) =>
+    request('/recommendations/all', {
+      method: 'POST',
+      body: JSON.stringify({ candidate_id: candidateId, filters, page, limit }),
+    }),
 
   // -------- SEARCH --------
   searchInternships: (params: Record<string, string>) => {
