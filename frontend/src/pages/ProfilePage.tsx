@@ -8,7 +8,7 @@ import FormField from '../components/FormField';
 import ChipInput from '../components/ChipInput';
 import { CandidateProfile } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { educationLevels, fields, skillSuggestions, interestOptions, cities } from '../data/mockData';
+import { educationLevels, fields, skillSuggestions, interestOptions, cities, jobRoleOptions } from '../data/mockData';
 import { apiClient } from '../api/apiClient';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
@@ -135,7 +135,7 @@ export default function ProfilePage() {
       setStepStates((prev) => prev.map((s) => ({ ...s, completed: true })));
 
       // Build payload matching backend schema
-      const payload = {
+      const payload: any = {
         education_level: profile.education_level,
         field: profile.field,
         grad_year: profile.grad_year,
@@ -148,7 +148,11 @@ export default function ProfilePage() {
           start: profile.availability?.start,
           hours_per_week: profile.availability?.hours_per_week
         },
-        accessibility_needs: profile.accessibility_needs || 'None'
+        accessibility_needs: profile.accessibility_needs || 'None',
+        // New fields for ML model compatibility
+        max_distance_km: typeof profile.max_distance_km === 'number' ? profile.max_distance_km : 50,
+        preferred_job_roles: profile.preferred_job_roles || [],
+        preferred_sectors: profile.preferred_sectors || []
       };
 
       // Persist to DB (requires Authorization header via interceptor)
@@ -295,6 +299,90 @@ export default function ProfilePage() {
             );
           })}
         </div>
+      </FormField>
+
+      <FormField label="Preferred Job Roles" error={errors.preferred_job_roles}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {jobRoleOptions.map((role) => {
+            const checked = (profile.preferred_job_roles || []).includes(role);
+            return (
+              <label
+                key={role}
+                className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${
+                  checked ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    const list = profile.preferred_job_roles || [];
+                    if (e.target.checked) {
+                      setProfile((prev) => ({ ...prev, preferred_job_roles: [...list, role] }));
+                    } else {
+                      setProfile((prev) => ({ ...prev, preferred_job_roles: list.filter((r) => r !== role) }));
+                    }
+                  }}
+                  className="sr-only"
+                />
+                <span className="text-sm font-medium">{role}</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="text-sm text-gray-600 mt-2">Select the job roles you're most interested in (optional)</p>
+      </FormField>
+
+      <FormField label="Preferred Sectors" error={errors.preferred_sectors}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {interestOptions.map((sector) => {
+            const checked = (profile.preferred_sectors || []).includes(sector);
+            return (
+              <label
+                key={sector}
+                className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${
+                  checked ? 'bg-green-50 border-green-200 text-green-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    const list = profile.preferred_sectors || [];
+                    if (e.target.checked) {
+                      setProfile((prev) => ({ ...prev, preferred_sectors: [...list, sector] }));
+                    } else {
+                      setProfile((prev) => ({ ...prev, preferred_sectors: list.filter((s) => s !== sector) }));
+                    }
+                  }}
+                  className="sr-only"
+                />
+                <span className="text-sm font-medium">{sector}</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="text-sm text-gray-600 mt-2">Select your preferred industry sectors (optional)</p>
+      </FormField>
+
+      <FormField label="Maximum Distance from Location (km)" error={errors.max_distance_km}>
+        <div className="space-y-2">
+          <input
+            type="range"
+            min="10"
+            max="200"
+            step="10"
+            value={profile.max_distance_km || 50}
+            onChange={(e) => setProfile((prev) => ({ ...prev, max_distance_km: parseInt(e.target.value) }))}
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+          />
+          <div className="flex justify-between text-sm text-gray-600">
+            <span>10 km</span>
+            <span className="font-medium">{profile.max_distance_km || 50} km</span>
+            <span>200+ km</span>
+          </div>
+        </div>
+        <p className="text-sm text-gray-600 mt-2">How far are you willing to travel for internships?</p>
       </FormField>
 
       <FormField label="Preferred Location" required error={errors.location}>

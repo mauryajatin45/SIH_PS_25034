@@ -111,6 +111,11 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify({ candidate_id: candidateId, filters }),
     }),
+  getMLRecommendations: (candidateId: string) =>
+    request('/recommendations/ml', {
+      method: 'POST',
+      body: JSON.stringify({ candidate_id: candidateId }),
+    }),
   getRecommendation: (id: string) => request(`/recommendations/${id}`, { method: 'GET' }),
 
   // -------- SEARCH --------
@@ -138,5 +143,3 @@ export const apiClient = {
   healthCheck: () => request('/health', { method: 'GET' }),
   getDebugRoutes: () => request('/debug/routes', { method: 'GET' }),
 };
-
-
