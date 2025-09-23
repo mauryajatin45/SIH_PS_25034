@@ -19,7 +19,7 @@ async function start() {
   const app = express();
 
   // --- CORS ---
-  const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173')
+  const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'https://sih-ps-25034.vercel.app/')
     .split(',').map(s => s.trim());
 
   app.use(cors({
