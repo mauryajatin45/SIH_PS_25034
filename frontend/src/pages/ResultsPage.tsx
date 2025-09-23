@@ -325,7 +325,7 @@ export default function ResultsPage() {
     }
 
     // Apply location filter - handle both regular and ML data structures
-    const location = intern.location?.city || intern.location || '';
+    const location = typeof intern.location === 'string' ? intern.location : intern.location?.city || '';
     if (filters.location && location) {
       const locationMatch = location.toLowerCase().includes(filters.location.toLowerCase());
       if (!locationMatch) {
@@ -425,6 +425,30 @@ export default function ResultsPage() {
                 All opportunity
               </button>
             </div>
+
+            {/* Quick Filters for All Opportunities */}
+            {activeTab === 'all' && (
+              <div className="flex flex-wrap items-center gap-3 mb-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Sector</label>
+                  <select
+                    value={filters.sector}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFilters((prev) => ({ ...prev, sector: val }));
+                      // Trigger fresh fetch for All opportunities on change
+                      loadRecommendations('all');
+                    }}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  >
+                    <option value="">All sectors</option>
+                    {uniqueSectors.map((sector) => (
+                      <option key={sector} value={sector}>{sector}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
 
             {/* Fairness Notice */}
             {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
