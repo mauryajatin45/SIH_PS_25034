@@ -6,7 +6,7 @@ const normalize = (v: string) => v.replace(/\/+$/, '');
 const ensureLeadingSlash = (v: string) => (v.startsWith('/') ? v : `/${v}`);
 const addHttpIfMissing = (v: string) => (/^https?:\/\//i.test(v) ? v : `http://${v}`);
 
-let BASE_URL = 'http://localhost:5000';
+let BASE_URL = 'http://13.201.95.207:5000';
 let API_PREFIX = '/api';
 
 if (RAW_BASE) {
@@ -21,7 +21,7 @@ if (RAW_BASE) {
     BASE_URL = normalize(addHttpIfMissing(RAW_PREFIX));
     API_PREFIX = '';
   } else {
-    BASE_URL = 'http://localhost:5000';
+    BASE_URL = 'http://13.201.95.207:5000/';
     API_PREFIX = ensureLeadingSlash(RAW_PREFIX);
   }
 }
