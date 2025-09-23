@@ -8,4 +8,21 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
   envPrefix: 'VITE_',
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://13.201.95.207:5000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api/, '/api')
+      }
+    }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: undefined
+      }
+    }
+  }
 });

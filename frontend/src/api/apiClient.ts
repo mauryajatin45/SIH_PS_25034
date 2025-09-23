@@ -4,9 +4,14 @@ const RAW_PREFIX = (import.meta as any)?.env?.VITE_PREFIX_URL as string | undefi
 
 const normalize = (v: string) => v.replace(/\/+$/, '');
 const ensureLeadingSlash = (v: string) => (v.startsWith('/') ? v : `/${v}`);
-const addHttpIfMissing = (v: string) => (/^https?:\/\//i.test(v) ? v : `http://${v}`);
+const addHttpIfMissing = (v: string) => (/^https?:\/\//i.test(v) ? v : `https://${v}`);
 
-let BASE_URL = 'http://13.201.95.207:5000';
+// Detect if we're running on HTTPS (production)
+const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
+
+// Use relative URLs in production to avoid mixed content issues
+let BASE_URL = isProduction ? '' : 'http://13.201.95.207:5000';
 let API_PREFIX = '/api';
 
 if (RAW_BASE) {
@@ -21,7 +26,7 @@ if (RAW_BASE) {
     BASE_URL = normalize(addHttpIfMissing(RAW_PREFIX));
     API_PREFIX = '';
   } else {
-    BASE_URL = 'http://13.201.95.207:5000/';
+    BASE_URL = isProduction ? '' : 'http://13.201.95.207:5000/';
     API_PREFIX = ensureLeadingSlash(RAW_PREFIX);
   }
 }

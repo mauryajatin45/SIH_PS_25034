@@ -19,17 +19,31 @@ async function start() {
   const app = express();
 
   // --- CORS ---
-  const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'https://sih-ps-25034.vercel.app/')
+  const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'https://sih-ps-25034.vercel.app,https://sih-ps-25034.vercel.app/')
     .split(',').map(s => s.trim());
 
   app.use(cors({
     origin(origin, cb) {
+      // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return cb(null, true);
-      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      
+      // Allow all Vercel domains and your specific domain
+      if (origin.includes('vercel.app') || ALLOWED_ORIGINS.includes(origin)) {
+        return cb(null, true);
+      }
+      
+      // For development, allow localhost
+      if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        return cb(null, true);
+      }
+      
+      console.log(`CORS blocked for origin: ${origin}`);
       return cb(new Error(`CORS blocked for origin: ${origin}`));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar']
   }));
 
   // --- Security + logs ---
@@ -86,9 +100,35 @@ async function start() {
   });
 
   const PORT = process.env.PORT || 5000;
+  const HTTPS_PORT = process.env.HTTPS_PORT || 5443;
+  
+  // Start HTTP server
   const server = app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`HTTP Server running on port ${PORT}`);
   });
+
+  // For production, you should set up HTTPS with proper SSL certificates
+  // This is a basic setup - in production, use proper SSL certificates
+  if (process.env.NODE_ENV === 'production') {
+    const https = require('https');
+    const fs = require('fs');
+    
+    // Try to load SSL certificates if they exist
+    try {
+      const options = {
+        key: fs.readFileSync(process.env.SSL_KEY_PATH || './ssl/private.key'),
+        cert: fs.readFileSync(process.env.SSL_CERT_PATH || './ssl/certificate.crt')
+      };
+      
+      const httpsServer = https.createServer(options, app);
+      httpsServer.listen(HTTPS_PORT, () => {
+        console.log(`HTTPS Server running on port ${HTTPS_PORT}`);
+      });
+    } catch (error) {
+      console.log('HTTPS not configured - SSL certificates not found. Using HTTP only.');
+      console.log('To enable HTTPS, provide SSL certificates or deploy to a service that provides HTTPS.');
+    }
+  }
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
