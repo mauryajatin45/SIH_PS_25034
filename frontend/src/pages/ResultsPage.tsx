@@ -29,6 +29,20 @@ export default function ResultsPage() {
   });
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
+  // Fixed sector options from DB
+  const SECTOR_OPTIONS = [
+    'agritech',
+    'e-commerce',
+    'edtech',
+    'fintech',
+    'govtech',
+    'healthtech',
+    'hospitality',
+    'manufacturing',
+    'media',
+    'ngo'
+  ];
+
   // Pagination state for "all" tab
   const [allOpportunitiesPage, setAllOpportunitiesPage] = useState(1);
   const [allOpportunitiesTotalPages, setAllOpportunitiesTotalPages] = useState(1);
@@ -156,7 +170,8 @@ export default function ResultsPage() {
 
           if (resp.success && resp.data && resp.data.recommendations) {
             console.log('Recommendations data:', resp.data.recommendations); // Debug log
-            setRecommendations(resp.data.recommendations as any);
+            const sorted = [...resp.data.recommendations].sort((a: any, b: any) => (b.stipend || 0) - (a.stipend || 0));
+            setRecommendations(sorted as any);
             setAllOpportunitiesPage(resp.data.current_page);
             setAllOpportunitiesTotalPages(resp.data.total_pages);
             setAllOpportunitiesTotalCount(resp.data.total_count);
@@ -245,7 +260,8 @@ export default function ResultsPage() {
       }, page, 10);
 
       if (resp.success) {
-        setRecommendations(resp.data.recommendations as any);
+        const sorted = [...resp.data.recommendations].sort((a: any, b: any) => (b.stipend || 0) - (a.stipend || 0));
+        setRecommendations(sorted as any);
         setAllOpportunitiesPage(resp.data.current_page);
         setAllOpportunitiesTotalPages(resp.data.total_pages);
         setAllOpportunitiesTotalCount(resp.data.total_count);
@@ -362,6 +378,15 @@ export default function ResultsPage() {
 
   const uniqueSectors = [...new Set(recommendations.map((r) => r.sector))];
 
+  // Refetch All opportunities when sector filter changes
+  useEffect(() => {
+    if (activeTab === 'all') {
+      setAllOpportunitiesPage(1);
+      loadRecommendations('all');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.sector, activeTab]);
+
   // ------- OFFLINE STATE -------
   if (!isOnline && recommendations.length === 0) {
     return (
@@ -436,13 +461,11 @@ export default function ResultsPage() {
                     onChange={(e) => {
                       const val = e.target.value;
                       setFilters((prev) => ({ ...prev, sector: val }));
-                      // Trigger fresh fetch for All opportunities on change
-                      loadRecommendations('all');
                     }}
                     className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                   >
                     <option value="">All sectors</option>
-                    {uniqueSectors.map((sector) => (
+                    {SECTOR_OPTIONS.map((sector) => (
                       <option key={sector} value={sector}>{sector}</option>
                     ))}
                   </select>
