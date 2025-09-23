@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, Mic, MicOff } from 'lucide-react';
-import AppBar from '../components/AppBar';
 import Stepper from '../components/Stepper';
 import FormField from '../components/FormField';
 import ChipInput from '../components/ChipInput';
@@ -494,7 +493,6 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppBar showBack={isFirstStep} onBack={() => navigate('/')} />
       <Stepper steps={stepStates} currentStep={currentStep} />
 
       <main className="max-w-2xl mx-auto px-4 py-6">

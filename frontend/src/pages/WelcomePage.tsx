@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Target, Clock, Users, CheckCircle2, Cpu, Globe2, Layers3, Mail, Sparkles } from 'lucide-react';
-import AppBar from '../components/AppBar';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 export default function WelcomePage() {
@@ -9,8 +8,6 @@ export default function WelcomePage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <AppBar />
-      
       <main className="max-w-7xl mx-auto px-4 lg:px-8 py-10">
         {/* Hero Section */}
         <section className="relative overflow-hidden rounded-2xl mb-16 bg-gradient-to-br from-orange-50 via-white to-white">

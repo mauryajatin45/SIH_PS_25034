@@ -1,13 +1,10 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Shield, Brain, Users, Eye, Lock, Mail } from 'lucide-react';
-import AppBar from '../components/AppBar';
 
 export default function AboutPage() {
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppBar />
-      
       <main className="max-w-4xl mx-auto px-4 py-8">
         {/* Hero */}
         <div className="text-center mb-12">
