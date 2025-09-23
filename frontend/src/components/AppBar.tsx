@@ -108,6 +108,87 @@ export default function AppBar({ title, showBack = false, onBack }: AppBarProps)
     };
   }, [menuOpen]);
 
+  // -------- Language dropdown (Google Translate control) --------
+  const LANGUAGE_OPTIONS: { code: string; label: string }[] = [
+    { code: 'en', label: 'English' },
+    { code: 'hi', label: 'हिन्दी' },
+    { code: 'bn', label: 'বাংলা' },
+    { code: 'ta', label: 'தமிழ்' },
+    { code: 'te', label: 'తెలుగు' },
+    { code: 'gu', label: 'ગુજરાતી' },
+    { code: 'kn', label: 'ಕನ್ನಡ' },
+    { code: 'ml', label: 'മലയാളം' },
+    { code: 'mr', label: 'मराठी' },
+    { code: 'pa', label: 'ਪੰਜਾਬੀ' },
+    { code: 'ur', label: 'اردو' },
+    { code: 'as', label: 'অসমীয়া' },
+    { code: 'or', label: 'ଓଡିଆ' },
+  ];
+
+  const [selectedLang, setSelectedLang] = useState<string>(() => {
+    return localStorage.getItem('udaan_lang') || 'en';
+  });
+
+  // Helper: set both host and top-level domain cookies so Google sees it
+  const setGoogTransCookie = (lang: string) => {
+    const cookieValue = `/en/${lang}`;
+    const cookieBase = `googtrans=${cookieValue}; path=/`;
+    try {
+      // Current host
+      document.cookie = cookieBase;
+      // Top-level domain (best-effort)
+      const host = window.location.hostname;
+      const parts = host.split('.');
+      if (parts.length > 1) {
+        const tld = `.${parts.slice(-2).join('.')}`;
+        document.cookie = `${cookieBase}; domain=${tld}`;
+      }
+    } catch {}
+  };
+
+  const triggerGoogleTranslate = (lang: string) => {
+    // Prefer driving the hidden Google combo if available
+    const combo = document.querySelector<HTMLSelectElement>('.goog-te-combo');
+    if (combo) {
+      if (combo.value !== lang) {
+        combo.value = lang;
+        combo.dispatchEvent(new Event('change'));
+      } else {
+        // Force re-apply in case same language is chosen
+        combo.dispatchEvent(new Event('change'));
+      }
+      return;
+    }
+    // Fallback: reload which Google will pick via cookie
+    window.location.reload();
+  };
+
+  const onChangeLanguage = (lang: string) => {
+    setSelectedLang(lang);
+    localStorage.setItem('udaan_lang', lang);
+    setGoogTransCookie(lang);
+    triggerGoogleTranslate(lang);
+  };
+
+  // Apply persisted language once Google is ready
+  useEffect(() => {
+    const saved = localStorage.getItem('udaan_lang');
+    if (!saved || saved === 'en') return;
+    // Defer until google translate combo exists
+    const start = Date.now();
+    const timer = setInterval(() => {
+      const combo = document.querySelector('.goog-te-combo');
+      if (combo || Date.now() - start > 8000) {
+        clearInterval(timer);
+        if (saved) {
+          setGoogTransCookie(saved);
+          triggerGoogleTranslate(saved);
+        }
+      }
+    }, 200);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-gray-200 px-4 py-3">
       <div className="flex items-center justify-between max-w-4xl mx-auto">
@@ -134,6 +215,21 @@ export default function AppBar({ title, showBack = false, onBack }: AppBarProps)
         </div>
         
         <div className="flex items-center space-x-3">
+          {/* Custom Language Dropdown */}
+          <label htmlFor="lang-select" className="sr-only">Select language</label>
+          <select
+            id="lang-select"
+            value={selectedLang}
+            onChange={(e) => onChangeLanguage(e.target.value)}
+            className="bg-white border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-700 shadow-sm hover:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-500 min-w-[130px]"
+            title="Change language"
+            aria-label="Change language"
+          >
+            {LANGUAGE_OPTIONS.map(opt => (
+              <option key={opt.code} value={opt.code}>{opt.label}</option>
+            ))}
+          </select>
+
           <div
             id="google_translate_element"
             className="google-translate-container"
