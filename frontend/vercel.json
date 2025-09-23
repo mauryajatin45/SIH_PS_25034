@@ -48,13 +48,5 @@
   ],
   "env": {
     "NODE_ENV": "production"
-  },
-  "functions": {
-    "src/**/*.js": {
-      "runtime": "nodejs18.x"
-    },
-    "src/**/*.ts": {
-      "runtime": "nodejs18.x"
-    }
   }
 }
