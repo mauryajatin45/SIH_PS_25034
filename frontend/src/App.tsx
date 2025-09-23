@@ -10,6 +10,7 @@ import AboutPage from "./pages/AboutPage";
 import ApiTest from "./components/ApiTest";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import AppBar from "./components/AppBar";
 
 function AppRoutes() {
   const navigate = useNavigate();
@@ -46,6 +47,7 @@ function App() {
   return (
     <Router>
       <div className="app">
+        <AppBar />
         <AppRoutes />
       </div>
     </Router>
