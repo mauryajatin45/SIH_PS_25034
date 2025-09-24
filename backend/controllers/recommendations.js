@@ -310,7 +310,7 @@ const transformCandidateToMLProfile = (candidate) => {
     'Remote': { lat: 0, lon: 0, city: 'Remote', state: 'Remote' }
   };
 
-  const location = cityCoordinates[candidate.location] || cityCoordinates['Ahmedabad']; // Default to Ahmedabad based on user's data
+const location = cityCoordinates[candidate.locations[0]] || cityCoordinates['Mumbai']; // Use the first location in the array
 
   // Calculate minimum duration based on availability
   const hoursPerWeek = candidate.availability?.hours_per_week || 40;
