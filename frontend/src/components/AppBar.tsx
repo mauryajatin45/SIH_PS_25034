@@ -208,7 +208,7 @@ export default function AppBar({ title, showBack = false, onBack }: AppBarProps)
           {currentTitle === 'Udaan' ? (
             <Link to="/" className="flex items-center space-x-2 text-xl font-semibold text-gray-900 hover:text-orange-500">
               <img
-                src="./src/assets/images/logo.png"
+                src="https://sih-ps-25034.vercel.app/assets/logo-Cxb4WBdW.png"
                 alt="Udaan Logo"
                 className="w-8 h-8"
               />
