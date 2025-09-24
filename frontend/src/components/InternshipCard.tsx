@@ -17,9 +17,10 @@ interface InternshipCardProps {
   internship: InternshipRecommendation;
   onSave?: (id: string) => void;
   isSaved?: boolean;
+  showMatchDetails?: boolean; // controls match score and why-this-match
 }
 
-export default function InternshipCard({ internship, onSave, isSaved = false }: InternshipCardProps) {
+export default function InternshipCard({ internship, onSave, isSaved = false, showMatchDetails = true }: InternshipCardProps) {
   const [showExplanation, setShowExplanation] = useState(false);
 
   return (
@@ -88,57 +89,59 @@ export default function InternshipCard({ internship, onSave, isSaved = false }: 
         )}
       </div>
 
-      {/* Match Score */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between text-sm mb-2">
-          <span className="text-gray-600">Match Score</span>
-          <span className="font-semibold text-green-600">
-            {Math.round(internship.match_score * 100)}%
-          </span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
-          <div 
-            className="bg-green-500 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${internship.match_score * 100}%` }}
-            role="progressbar"
-            aria-valuenow={Math.round(internship.match_score * 100)}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label="Match score percentage"
-          />
-        </div>
-      </div>
-
-      {/* Why This Match - Collapsible */}
-      <div className="mb-4">
-        <button
-          onClick={() => setShowExplanation(!showExplanation)}
-          className="flex items-center justify-between w-full text-left text-sm font-medium text-orange-600 hover:text-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 rounded p-1"
-          aria-expanded={showExplanation}
-          aria-controls={`explanation-${internship.id}`}
-        >
-          <span>Why this match?</span>
-          {showExplanation ? (
-            <ChevronUp className="w-4 h-4" />
-          ) : (
-            <ChevronDown className="w-4 h-4" />
-          )}
-        </button>
-        
-        {showExplanation && (
-          <div 
-            id={`explanation-${internship.id}`}
-            className="mt-2 space-y-2"
-          >
-            {internship.explanations.map((explanation, index) => (
-              <div key={index} className="flex items-start space-x-2 text-sm text-gray-600">
-                <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-2 flex-shrink-0" />
-                <span>{explanation}</span>
-              </div>
-            ))}
+      {showMatchDetails && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-gray-600">Match Score</span>
+            <span className="font-semibold text-green-600">
+              {Math.round(internship.match_score * 100)}%
+            </span>
           </div>
-        )}
-      </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-green-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${internship.match_score * 100}%` }}
+              role="progressbar"
+              aria-valuenow={Math.round(internship.match_score * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Match score percentage"
+            />
+          </div>
+        </div>
+      )}
+
+      {showMatchDetails && (
+        <div className="mb-4">
+          <button
+            onClick={() => setShowExplanation(!showExplanation)}
+            className="flex items-center justify-between w-full text-left text-sm font-medium text-orange-600 hover:text-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 rounded p-1"
+            aria-expanded={showExplanation}
+            aria-controls={`explanation-${internship.id}`}
+          >
+            <span>Why this match?</span>
+            {showExplanation ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+          </button>
+          
+          {showExplanation && (
+            <div 
+              id={`explanation-${internship.id}`}
+              className="mt-2 space-y-2"
+            >
+              {internship.explanations.map((explanation, index) => (
+                <div key={index} className="flex items-start space-x-2 text-sm text-gray-600">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-2 flex-shrink-0" />
+                  <span>{explanation}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Languages */}
       <div className="mb-4">
@@ -156,9 +159,10 @@ export default function InternshipCard({ internship, onSave, isSaved = false }: 
       </div>
 
       {/* Actions */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      {/* <div className="flex flex-col sm:flex-row gap-3">
         <Link
           to={`/internship/${internship.id}`}
+          state={{ internship }}
           className="flex-1 bg-orange-500 text-white px-4 py-2 rounded-lg text-center font-medium hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-colors"
         >
           View Details
@@ -172,7 +176,7 @@ export default function InternshipCard({ internship, onSave, isSaved = false }: 
           Apply Now
           <ExternalLink className="w-4 h-4 ml-2" />
         </a>
-      </div>
+      </div> */}
     </div>
   );
 }

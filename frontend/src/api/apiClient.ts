@@ -77,25 +77,16 @@ export const apiClient = {
     request('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
 
   // -------- CANDIDATES (profile upsert for current user) --------
-  saveCandidate: (data: {
-    education_level: string;
-    field: string;
-    grad_year: number;
-    skills: string[];
-    interests: string[];
-    location: string;
-    remote_ok: boolean;
-    stipend_min: number;
-    availability: { start: string; hours_per_week: number };
-    accessibility_needs?: string;
-  }) => request('/candidates', { method: 'POST', body: JSON.stringify(data) }),
+  saveCandidate: (data: any) => request('/candidates', { method: 'POST', body: JSON.stringify(data) }),
 
   // optional helpers you already had
   getCandidates: () => request('/candidates', { method: 'GET' }),
   getCandidateById: (id: string) => request(`/candidates/${id}`, { method: 'GET' }),
+  getMyCandidate: () => request('/candidates/me', { method: 'GET' }),
   createCandidate: (data: any) => request('/candidates', { method: 'POST', body: JSON.stringify(data) }),
   updateCandidate: (id: string, data: any) =>
     request(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  updateMyCandidate: (data: any) => request('/candidates/me', { method: 'PUT', body: JSON.stringify(data) }),
   deleteCandidate: (id: string) => request(`/candidates/${id}`, { method: 'DELETE' }),
 
   // -------- INTERNSHIPS --------

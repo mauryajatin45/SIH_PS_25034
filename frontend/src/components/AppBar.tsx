@@ -52,7 +52,7 @@ export default function AppBar({ title, showBack = false, onBack }: AppBarProps)
       case '/': return 'Udaan';
       case '/profile': return 'Your Profile';
       case '/results':
-      case '/result': return 'Your Matches';
+      case '/result': return 'Udaan';
       case '/feedback': return 'Feedback';
       case '/about': return 'About Udaan';
       default: 
@@ -206,8 +206,13 @@ export default function AppBar({ title, showBack = false, onBack }: AppBarProps)
 
           {/* Title clickable only if it's Udaan */}
           {currentTitle === 'Udaan' ? (
-            <Link to="/" className="text-xl font-semibold text-gray-900 hover:text-orange-500">
-              {currentTitle}
+            <Link to="/" className="flex items-center space-x-2 text-xl font-semibold text-gray-900 hover:text-orange-500">
+              <img
+                src="/src/assets/images/logo.png"
+                alt="Udaan Logo"
+                className="w-8 h-8"
+              />
+              <span>{currentTitle}</span>
             </Link>
           ) : (
             <h1 className="text-xl font-semibold text-gray-900">{currentTitle}</h1>

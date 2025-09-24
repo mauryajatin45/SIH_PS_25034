@@ -42,10 +42,10 @@ const candidateSchema = new mongoose.Schema({
     type: String,
     trim: true
   }],
-  location: {
+  locations: [{
     type: String,
-    required: true
-  },
+    trim: true
+  }],
   remote_ok: {
     type: Boolean,
     default: false
@@ -85,7 +85,7 @@ const candidateSchema = new mongoose.Schema({
 // Index for better query performance
 candidateSchema.index({ user: 1 });
 candidateSchema.index({ skills: 1 });
-candidateSchema.index({ location: 1 });
+candidateSchema.index({ locations: 1 });
 candidateSchema.index({ remote_ok: 1 });
 
 module.exports = mongoose.model('Candidate', candidateSchema);

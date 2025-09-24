@@ -27,8 +27,8 @@ const getRecommendations = async (req, res) => {
       stipend: { $gte: candidate.stipend_min }
     };
 
-    if (!candidate.remote_ok) {
-      baseFilter.location = candidate.location;
+    if (!candidate.remote_ok && Array.isArray(candidate.locations) && candidate.locations.length > 0) {
+      baseFilter.location = { $in: candidate.locations };
     }
 
     // Apply additional filters if provided

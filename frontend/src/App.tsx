@@ -11,6 +11,7 @@ import ApiTest from "./components/ApiTest";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import AppBar from "./components/AppBar";
+import ProfileUpdatePage from "./pages/ProfileUpdatePage";
 
 function AppRoutes() {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/profile" element={<ProfilePage />} />
+      <Route path="/profile/update" element={<ProfileUpdatePage />} />
       <Route path="/results" element={<ResultsPage />} />
       <Route path="/result" element={<ResultsPage />} />
       <Route path="/all-opportunities" element={<AllOpportunitiesPage />} />

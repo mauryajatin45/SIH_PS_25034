@@ -4,7 +4,7 @@ export interface CandidateProfile {
   grad_year: number;
   skills: string[];
   interests: string[];
-  location: string;
+  locations: string[];
   remote_ok: boolean;
   stipend_min: number;
   availability: {

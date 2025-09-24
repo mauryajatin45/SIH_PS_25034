@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Filter, AlertCircle, RefreshCw } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
+import MobileMenu from '../components/MobileMenu';
 import InternshipCard from '../components/InternshipCard';
 import SkeletonCard from '../components/SkeletonCard';
 import Toast from '../components/Toast';
@@ -96,6 +97,15 @@ export default function ResultsPage() {
     checkAndLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Cache latest recommendations for details-page fallback
+  useEffect(() => {
+    try {
+      if (recommendations && recommendations.length > 0) {
+        sessionStorage.setItem('udaan_last_recommendations', JSON.stringify(recommendations));
+      }
+    } catch {}
+  }, [recommendations]);
 
   const loadRecommendations = async (type: 'recommended' | 'all' = 'recommended') => {
     const userJson = localStorage.getItem('user');
@@ -393,10 +403,18 @@ export default function ResultsPage() {
       <div className="min-h-screen bg-gray-50">
         <div className="w-full px-4 lg:px-8 py-4">
           <div className="grid grid-cols-1 lg:grid-cols-[auto_minmax(0,1fr)] gap-6">
-            <aside className="lg:sticky lg:top-4 self-start">
+            {/* Sidebar - Hidden on mobile */}
+            <aside className="hidden lg:sticky lg:top-4 self-start lg:block">
               <Sidebar />
             </aside>
             <main className="px-0 lg:px-2 py-0 lg:py-2">
+              {/* Mobile Menu Button */}
+              <div className="flex justify-between items-center mb-6 lg:hidden">
+                <MobileMenu />
+                <div className="text-sm text-gray-600">
+                  {/* Optional: Add any mobile-specific header content here */}
+                </div>
+              </div>
               <div className="text-center">
                 <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
                 <h2 className="text-xl font-semibold text-gray-900 mb-2">You're offline</h2>
@@ -416,11 +434,19 @@ export default function ResultsPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="w-full px-4 lg:px-8 py-4">
         <div className="grid grid-cols-1 lg:grid-cols-[auto_minmax(0,1fr)] gap-6">
-          <aside className="lg:sticky lg:top-4 self-start">
+          {/* Sidebar - Hidden on mobile */}
+          <aside className="hidden lg:sticky lg:top-4 self-start lg:block">
             <Sidebar />
           </aside>
 
           <main className="px-0 lg:px-2 py-0 lg:py-2">
+            {/* Mobile Menu Button */}
+            <div className="flex justify-between items-center mb-6 lg:hidden">
+              <MobileMenu />
+              <div className="text-sm text-gray-600">
+                {/* Optional: Add any mobile-specific header content here */}
+              </div>
+            </div>
             {/* Nav Tabs (instead of old header) */}
             <div className="flex items-center space-x-4 mb-6">
               <button
@@ -546,8 +572,8 @@ export default function ResultsPage() {
 
             {/* Loading */}
             {loading && (
-              <div className="space-y-6">
-                {[...Array(3)].map((_, i) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {[...Array(4)].map((_, i) => (
                   <SkeletonCard key={i} />
                 ))}
               </div>
@@ -621,14 +647,18 @@ export default function ResultsPage() {
             {/* Results */}
             {!loading && !error && filteredRecommendations.length > 0 && (
               <div className="space-y-6">
-                {filteredRecommendations.map((internship) => (
-                  <InternshipCard
-                    key={internship.id}
-                    internship={internship}
-                    onSave={handleSave}
-                    isSaved={savedInternships.includes(internship.id)}
-                  />
-                ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {filteredRecommendations.map((internship) => (
+                    <div key={internship.id}>
+                      <InternshipCard
+                        internship={internship}
+                        onSave={handleSave}
+                        isSaved={savedInternships.includes(internship.id)}
+                        showMatchDetails={activeTab === 'recommended'}
+                      />
+                    </div>
+                  ))}
+                </div>
 
                 {/* Pagination for "all" tab */}
                 {activeTab === 'all' && allOpportunitiesTotalPages > 1 && (

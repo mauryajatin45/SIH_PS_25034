@@ -33,7 +33,8 @@ export default function ProfilePage() {
     skills: [],
     interests: [],
     remote_ok: false,
-    stipend_min: 0
+    stipend_min: 0,
+    locations: []
   });
 
   // Voice recognition
@@ -95,7 +96,7 @@ export default function ProfilePage() {
         break;
       case 'interests':
         if (!profile.interests || profile.interests.length === 0) newErrors.interests = 'Please select at least one interest';
-        if (!profile.location) newErrors.location = 'Please select your location';
+        if (!profile.locations || profile.locations.length === 0) newErrors.locations = 'Please add at least one location';
         break;
       case 'constraints':
         if (!profile.availability?.start) newErrors.start_date = 'Please select your availability start date';
@@ -140,7 +141,7 @@ export default function ProfilePage() {
         grad_year: profile.grad_year,
         skills: profile.skills || [],
         interests: profile.interests || [],
-        location: profile.location,
+        locations: profile.locations || [],
         remote_ok: !!profile.remote_ok,
         stipend_min: typeof profile.stipend_min === 'number' ? profile.stipend_min : 0,
         availability: {
@@ -384,17 +385,15 @@ export default function ProfilePage() {
         <p className="text-sm text-gray-600 mt-2">How far are you willing to travel for internships?</p>
       </FormField>
 
-      <FormField label="Preferred Location" required error={errors.location}>
-        <select
-          value={profile.location || ''}
-          onChange={(e) => setProfile((prev) => ({ ...prev, location: e.target.value }))}
-          className="w-full px-4 py-3 border border-gray-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-        >
-          <option value="">Select your city</option>
-          {cities.map((city) => (
-            <option key={city} value={city}>{city}</option>
-          ))}
-        </select>
+      <FormField label="Preferred Locations" required error={errors.locations}>
+        <ChipInput
+          value={profile.locations || []}
+          onChange={(locations) => setProfile((prev) => ({ ...prev, locations }))}
+          suggestions={cities}
+          placeholder="Type a city and press Enter"
+          maxItems={10}
+        />
+        <p className="text-sm text-gray-600 mt-2">Add one or more cities you prefer.</p>
       </FormField>
 
       <div>

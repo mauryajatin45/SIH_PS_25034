@@ -18,7 +18,7 @@ const isValidGradYear = (value) => Number.isInteger(value) && value >= 2023 && v
 
 const isValidSkills = (value) => Array.isArray(value) && value.every((s) => typeof s === 'string');
 
-const isValidLocation = (value) => typeof value === 'string' && value.trim().length > 0;
+const isValidLocations = (value) => Array.isArray(value) && value.length > 0 && value.every((s) => typeof s === 'string' && s.trim().length > 0);
 
 const isValidStipend = (value) => typeof value === 'number' && value >= 0;
 
@@ -38,7 +38,7 @@ const isValidPreferredSectors = (value) => Array.isArray(value) && value.every((
 // ---------- Candidate validation middleware ----------
 const validateCandidate = (req, res, next) => {
   const errors = [];
-  const { education_level, field, grad_year, skills, location, stipend_min, availability } = req.body;
+  const { education_level, field, grad_year, skills, locations, stipend_min, availability } = req.body;
 
   if (!isValidEducationLevel(education_level)) {
     errors.push({
@@ -59,8 +59,8 @@ const validateCandidate = (req, res, next) => {
     errors.push({ field: 'skills', message: 'Skills must be an array of strings' });
   }
 
-  if (!isValidLocation(location)) {
-    errors.push({ field: 'location', message: 'Location is required' });
+  if (!isValidLocations(locations)) {
+    errors.push({ field: 'locations', message: 'Locations must be a non-empty array of strings' });
   }
 
   if (!isValidStipend(stipend_min)) {

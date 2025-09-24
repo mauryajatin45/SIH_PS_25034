@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Filter, AlertCircle, RefreshCw, MapPin, Clock, DollarSign, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Filter, AlertCircle, RefreshCw, MapPin, Clock, DollarSign } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
-import InternshipCard from '../components/InternshipCard';
+// import InternshipCard from '../components/InternshipCard';
 import SkeletonCard from '../components/SkeletonCard';
 import Toast from '../components/Toast';
 import { InternshipRecommendation } from '../types';
@@ -347,7 +347,7 @@ const AllOpportunitiesPage: React.FC = () => {
                       <div className="space-y-2">
                         <div className="flex items-center text-gray-600">
                           <MapPin className="h-4 w-4 mr-2" />
-                          {opportunity.location}
+                          {typeof opportunity.location === 'string' ? opportunity.location : opportunity.location?.city}
                         </div>
                         <div className="flex items-center text-gray-600">
                           <DollarSign className="h-4 w-4 mr-2" />
@@ -397,9 +397,14 @@ const AllOpportunitiesPage: React.FC = () => {
                         >
                           {savedInternships.includes(opportunity.id) ? 'Saved' : 'Save'}
                         </button>
-                        <button className="px-4 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600">
+                        <a
+                          href={opportunity.apply_url || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600"
+                        >
                           Apply Now
-                        </button>
+                        </a>
                       </div>
                       <div className="text-sm text-gray-500">
                         {opportunity.start_window}

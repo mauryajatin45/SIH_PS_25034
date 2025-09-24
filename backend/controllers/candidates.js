@@ -73,5 +73,28 @@ const getCandidate = async (req, res) => {
 
 module.exports = {
   createOrUpdateCandidate,
-  getCandidate
+  getCandidate,
+  getMyCandidate: async (req, res) => {
+    try {
+      const candidate = await Candidate.findOne({ user: req.user._id }).populate('user', 'email');
+      if (!candidate) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Candidate not found' } });
+      }
+      res.status(200).json({ success: true, data: candidate });
+    } catch (error) {
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: error.message } });
+    }
+  },
+  updateMyCandidate: async (req, res) => {
+    try {
+      let candidate = await Candidate.findOne({ user: req.user._id });
+      if (!candidate) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Candidate not found' } });
+      }
+      candidate = await Candidate.findByIdAndUpdate(candidate._id, req.body, { new: true, runValidators: true });
+      res.status(200).json({ success: true, data: candidate });
+    } catch (error) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: error.message } });
+    }
+  }
 };
