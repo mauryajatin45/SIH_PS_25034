@@ -1,10 +1,9 @@
 import os
 import time
-import math
 import logging
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import List, Dict, Any, Set, Optional, Tuple, Iterable
+from typing import List, Dict, Any, Set, Optional, Tuple
 
 from app.preprocessing import (
     preprocess_student_profile,
@@ -24,6 +23,72 @@ if _SEED is not None:
 
 # Primary geospatial field to use in DB nearest search
 DEFAULT_GEO_FIELD = os.getenv("GEO_NEAR_FIELD", "location_point_exact")
+
+# Related job roles mapping for expanded recommendations
+RELATED_JOBS = {
+    "data scientist": ["ml engineer", "data analyst", "data engineer", "ai engineer"],
+    "ml engineer": ["data scientist", "ai engineer", "data analyst", "machine learning engineer"],
+    "community intern": ["outreach intern", "social work intern", "volunteer coordinator", "community outreach intern"],
+    "software engineer": ["full stack developer", "backend developer", "frontend developer", "web developer"],
+    "marketing intern": ["digital marketing intern", "content marketing intern", "social media intern"],
+    "business analyst": ["data analyst", "financial analyst", "market research analyst"],
+    "graphic designer": ["ui/ux designer", "visual designer", "creative designer"],
+    "sales intern": ["business development intern", "customer service intern", "account manager intern"],
+    "hr intern": ["recruitment intern", "talent acquisition intern", "employee relations intern"],
+    "finance intern": ["accounting intern", "financial analyst intern", "investment banking intern"],
+    "operations intern": ["logistics intern", "supply chain intern", "project coordinator intern"],
+    "research intern": ["research assistant", "lab assistant", "academic intern"],
+    "teaching intern": ["education intern", "tutor intern", "training intern"],
+    "legal intern": ["law intern", "compliance intern", "paralegal intern"],
+    "medical intern": ["healthcare intern", "nursing intern", "pharmacy intern"],
+    "engineering intern": ["mechanical engineer intern", "electrical engineer intern", "civil engineer intern"],
+    "product manager intern": ["product development intern", "project manager intern", "business analyst intern"],
+    "content writer": ["copywriter", "blogger", "technical writer", "journalist intern"],
+    "photographer": ["videographer", "media intern", "creative intern"],
+    "event planner": ["event coordinator", "wedding planner intern", "conference organizer intern"],
+    "consultant intern": ["strategy intern", "management consultant intern", "business consultant intern"],
+    "analyst intern": ["data analyst", "financial analyst", "market analyst intern"],
+    "developer intern": ["software developer intern", "web developer intern", "app developer intern"],
+    "designer intern": ["graphic designer intern", "ui designer intern", "ux designer intern"],
+    "manager intern": ["project manager intern", "team leader intern", "operations manager intern"],
+    "coordinator intern": ["project coordinator intern", "event coordinator intern", "office coordinator intern"],
+    "specialist intern": ["hr specialist intern", "marketing specialist intern", "sales specialist intern"],
+    "associate intern": ["business associate intern", "research associate intern", "sales associate intern"],
+    "executive intern": ["account executive intern", "marketing executive intern", "sales executive intern"],
+    "officer intern": ["compliance officer intern", "loan officer intern", "security officer intern"],
+    "technician intern": ["it technician intern", "lab technician intern", "maintenance technician intern"],
+    "support intern": ["customer support intern", "technical support intern", "administrative support intern"],
+    "advisor intern": ["financial advisor intern", "career advisor intern", "academic advisor intern"],
+    "trainer intern": ["corporate trainer intern", "fitness trainer intern", "sales trainer intern"],
+    "auditor intern": ["internal auditor intern", "external auditor intern", "compliance auditor intern"],
+    "broker intern": ["real estate broker intern", "insurance broker intern", "stock broker intern"],
+    "buyer intern": ["procurement intern", "purchasing intern", "sourcing intern"],
+    "chef intern": ["cook intern", "kitchen intern", "culinary intern"],
+    "driver intern": ["delivery driver intern", "truck driver intern", "chauffeur intern"],
+    "editor intern": ["content editor intern", "video editor intern", "copy editor intern"],
+    "farmer intern": ["agriculture intern", "farm manager intern", "horticulture intern"],
+    "guide intern": ["tour guide intern", "museum guide intern", "nature guide intern"],
+    "host intern": ["event host intern", "tv host intern", "radio host intern"],
+    "inspector intern": ["quality inspector intern", "safety inspector intern", "building inspector intern"],
+    "investigator intern": ["private investigator intern", "research investigator intern", "fraud investigator intern"],
+    "judge intern": ["law clerk intern", "legal assistant intern", "court intern"],
+    "librarian intern": ["library assistant intern", "archivist intern", "information specialist intern"],
+    "mechanic intern": ["auto mechanic intern", "maintenance mechanic intern", "industrial mechanic intern"],
+    "nurse intern": ["registered nurse intern", "practical nurse intern", "nursing assistant intern"],
+    "operator intern": ["machine operator intern", "equipment operator intern", "control room operator intern"],
+    "pilot intern": ["flight attendant intern", "air traffic controller intern", "aviation intern"],
+    "police intern": ["law enforcement intern", "security intern", "detective intern"],
+    "reporter intern": ["journalist intern", "news reporter intern", "broadcast reporter intern"],
+    "scientist intern": ["research scientist intern", "lab scientist intern", "environmental scientist intern"],
+    "secretary intern": ["administrative assistant intern", "office assistant intern", "executive assistant intern"],
+    "teacher intern": ["professor intern", "instructor intern", "educator intern"],
+    "therapist intern": ["physical therapist intern", "occupational therapist intern", "speech therapist intern"],
+    "translator intern": ["interpreter intern", "language specialist intern", "localization intern"],
+    "veterinarian intern": ["animal care intern", "vet assistant intern", "wildlife intern"],
+    "waiter intern": ["server intern", "bartender intern", "hostess intern"],
+    "writer intern": ["author intern", "blogger intern", "content creator intern"],
+    "zoologist intern": ["wildlife biologist intern", "marine biologist intern", "conservation intern"],
+}
 
 # City coordinates mapping for the ML algorithm workflow
 CITY_COORDINATES: Dict[str, Dict[str, float]] = {
@@ -135,14 +200,14 @@ Number = float
 @dataclass(frozen=True)
 class Weights:
     """Relative weights should roughly sum to 1.0."""
-    skills: float = 0.30        # primary predictor of success
-    role: float = 0.20          # keeps titles aligned with intent
-    sector: float = 0.12        # industry context matters, but less than role
-    interests: float = 0.08     # mild nudge for long-term engagement
-    qualification: float = 0.06 # avoid over-filtering; treat as soft signal
-    salary: float = 0.10        # practical constraint users really feel
-    duration: float = 0.08      # internship/contract viability
-    support: float = 0.06       # mentorship/certificates/stipend as tie-breakers
+    skills: float = 0.30
+    role: float = 0.20
+    sector: float = 0.12
+    interests: float = 0.08
+    qualification: float = 0.06
+    salary: float = 0.10
+    duration: float = 0.08
+    support: float = 0.06
 
 @dataclass
 class DistanceConfig:
@@ -154,22 +219,21 @@ class RecommenderConfig:
     weights: Weights = field(default_factory=Weights)
     distance: DistanceConfig = field(default_factory=DistanceConfig)
     radius_tiers_km: Tuple[int, ...] = (30, 60, 120, 240)
-    prefer_recent_days: int = 90  # tie-breaker if created_at exists
+    prefer_recent_days: int = 90  # not strictly needed given created_at tie-break
 
 # ------------------------ Core Recommender ---------------------------- #
 class Recommender:
     """
     Score & rank internships for a student. Performs:
-      - Geospatial shortlist (Mongo $near)
+      - Geospatial shortlist (DB nearest)
+      - Preprocessing (student + internships)
       - Content scoring (skills/role/sector/etc.)
-      - Distance penalty (+ remote/work-from-home handling)
-      - Deterministic tie-breaking (recent + stipend + distance)
+      - Distance penalty (+ remote/hybrid handling)
+      - Deterministic tie-breaking (score desc, created_at desc, stipend desc, distance asc)
     """
 
     def __init__(self, config: Optional[RecommenderConfig] = None) -> None:
         self.cfg = config or RecommenderConfig()
-
-        # Optional sanity: warn if weights drift too far
         total_w = sum(vars(self.cfg.weights).values())
         if not (0.95 <= total_w <= 1.05):
             logger.warning("Weights sum to %.3f (expected ~1.0)", total_w)
@@ -177,7 +241,6 @@ class Recommender:
     # ---------------------- Similarity Components --------------------- #
     @staticmethod
     def calculate_jaccard_similarity(set1: Set[str], set2: Set[str]) -> float:
-        """Jaccard similarity with empty-set safety."""
         if not set1 and not set2:
             return 0.0
         inter = len(set1 & set2)
@@ -204,7 +267,6 @@ class Recommender:
         return self._qual_category_cached(qn)
 
     def calculate_qualification_match(self, student_qual: str, internship_qual: str) -> float:
-        """Loose matching across exact, contains, and same-level categories."""
         s = normalize_text(student_qual or "")
         i = normalize_text(internship_qual or "")
         if not s or not i:
@@ -220,7 +282,6 @@ class Recommender:
 
     @staticmethod
     def calculate_salary_match(student_salary: Optional[Number], internship_salary: Optional[Number]) -> float:
-        """Neutral if either missing; reward at/above expectation; soft degrade down to 0.0."""
         if not student_salary or not internship_salary:
             return 0.5
         if internship_salary >= student_salary:
@@ -234,7 +295,6 @@ class Recommender:
 
     @staticmethod
     def calculate_duration_match(student_min_duration: int, internship_duration: int) -> float:
-        """1.0 if internship meets or exceeds student's minimum; otherwise taper (soft)."""
         sm = max(0, int(student_min_duration or 0))
         im = max(0, int(internship_duration or 0))
         if im >= sm:
@@ -244,7 +304,6 @@ class Recommender:
 
     @staticmethod
     def calculate_support_bonus(additional_support: List[str], student_preferences: List[str]) -> float:
-        """High-value supports + minor credit for matching user prefs."""
         if not additional_support:
             return 0.0
         high_value = {"mentor", "stipend", "certificate", "training"}
@@ -259,10 +318,6 @@ class Recommender:
         return min(score, 2.0)
 
     def calculate_distance_penalty(self, distance_km: float, max_preferred_km: float, work_mode: Optional[str]) -> float:
-        """
-        Linear penalty beyond preference with a cap. Remote-compatible roles lower/skip penalty.
-        work_mode: 'remote'|'hybrid'|'onsite' (case-insensitive). If remote, no penalty.
-        """
         wm = (work_mode or "").strip().lower()
         if wm == "remote":
             return 0.0
@@ -270,7 +325,6 @@ class Recommender:
             return 0.0
         excess = distance_km - max_preferred_km
         base = excess * self.cfg.distance.penalty_per_km
-        # hybrid jobs take half distance penalty
         if wm == "hybrid":
             base *= 0.5
         return min(base, self.cfg.distance.max_penalty)
@@ -293,7 +347,6 @@ class Recommender:
 
         qual_score = self.calculate_qualification_match(student.get("education", ""), internship.get("qualification", ""))
 
-        # Treat any of these stipend fields as salary if present
         i_salary = (
             internship.get("expected_salary")
             or internship.get("stipend")
@@ -358,11 +411,10 @@ class Recommender:
         else:
             tags.append(f"{distance_km:.0f} km (beyond preference)")
 
-        # Ensure required fields exist for UI/model consumers
+        # Ensure required fields for UI/model consumers
         internship_with_defaults = dict(internship)
         if "description" not in internship_with_defaults:
             internship_with_defaults["description"] = f"{internship.get('title', 'Internship')} opportunity in {internship.get('sector', 'Technology')}"
-
         if "geo" not in internship_with_defaults:
             lat = i_loc.get("lat", 0.0)
             lon = i_loc.get("lon", 0.0)
@@ -370,7 +422,7 @@ class Recommender:
 
         return {
             "internship": internship_with_defaults,
-            "score": total,
+            "score": float(total),
             "distance_km": float(distance_km),
             "explanation_tags": tags,
         }
@@ -379,7 +431,7 @@ class Recommender:
     def _nearest(self, *, lat: float, lon: float, preference: Dict[str, Any], radius_km: int, n: int = 200) -> List[Dict[str, Any]]:
         db = get_database()
         try:
-            return db.find_nearest_internships(
+            items = db.find_nearest_internships(
                 user_lat=lat,
                 user_lon=lon,
                 preference=preference,
@@ -391,6 +443,15 @@ class Recommender:
             logger.exception("DB nearest failed: %s", e)
             return []
 
+        # Preprocess each internship record for consistent fields downstream
+        processed: List[Dict[str, Any]] = []
+        for raw in items:
+            try:
+                processed.append(preprocess_internship(raw))
+            except Exception as e:
+                logger.warning("Internship preprocess failed (id=%s): %s", raw.get("id"), e)
+        return processed
+
     # ----------------------- Orchestration ---------------------------- #
     def recommend_internships(self, student_profile: Dict[str, Any], top_k: int = 5) -> Dict[str, Any]:
         """
@@ -399,16 +460,23 @@ class Recommender:
         Deterministic tie-break: score desc, created_at desc, stipend desc, distance asc.
         """
         start_time = time.time()
+        fallback_note = ""
 
-        # 1) resolve coordinates (city mapping as fallback)
+        # 0) preprocess student (normalize skills, edu, location, etc.)
+        try:
+            student_profile = preprocess_student_profile(student_profile)
+        except Exception as e:
+            logger.warning("Student preprocess failed; continuing with raw profile: %s", e)
+
+        # 1) resolve coordinates (preprocess should help; city mapping as fallback)
         loc = (student_profile.get("location") or {})
         city = (loc.get("city") or "").strip()
         coords = CITY_COORDINATES.get(city) if city else None
-        lat = (coords or loc).get("lat")
-        lon = (coords or loc).get("lon")
+        lat = (loc.get("lat") if loc.get("lat") is not None else (coords or {}).get("lat"))
+        lon = (loc.get("lon") if loc.get("lon") is not None else (coords or {}).get("lon"))
         if lat is None or lon is None:
             logger.warning("Student location missing; cannot recommend internships.")
-            return {"recommendations": [], "total_found": 0, "search_radius_used": 0, "processing_time_ms": 0.0}
+            return {"recommendations": [], "total_found": 0, "search_radius_used": 0, "processing_time_ms": 0.0, "fallback_note": "Missing location"}
 
         # 2) extract preferences
         preference = student_profile.get("preference") or {}
@@ -433,12 +501,12 @@ class Recommender:
         all_candidates: List[Dict[str, Any]] = []
         for r in self.cfg.radius_tiers_km:
             all_candidates = self._nearest(lat=float(lat), lon=float(lon), preference=pref_payload, radius_km=r)
+            logger.info("Radius %skm: found %s candidates", r, len(all_candidates))
             if all_candidates:
                 radius_used = r
                 break
 
         # 4) relax if nothing found
-        fallback_note = ""
         if not all_candidates:
             fallback_note = "No exact matches found; expanded search with relaxed preferences."
             relaxed = {
@@ -453,7 +521,24 @@ class Recommender:
             all_candidates = self._nearest(lat=float(lat), lon=float(lon), preference=relaxed, radius_km=max_r, n=300)
             radius_used = max_r
 
-        # 5) build student vector for scoring
+        # 5) Filter by exact job role if specified; fallback to broader if empty
+        original_candidates = list(all_candidates)
+        if preferred_job_roles:
+            # Expand preferred roles with related jobs
+            preferred_roles = set(preferred_job_roles)
+            for role in preferred_job_roles:
+                related = RELATED_JOBS.get(normalize_text(role), [])
+                preferred_roles.update(related)
+            normalized_roles = {normalize_text(role) for role in preferred_roles}
+            all_candidates = [
+                i for i in all_candidates
+                if normalize_text(str(i.get("job_role", ""))) in normalized_roles
+            ]
+            if not all_candidates:
+                fallback_note = "No exact or related job role matches found; falling back to broader recommendations."
+                all_candidates = original_candidates
+
+        # 6) build student vector for scoring (normalized)
         student_for_scoring = {
             "skills": skills,
             "job_role": preferred_job_roles[0] if preferred_job_roles else "",
@@ -470,7 +555,7 @@ class Recommender:
             },
         }
 
-        # 6) score
+        # 7) score
         scored: List[Dict[str, Any]] = []
         for internship in all_candidates:
             try:
@@ -478,21 +563,18 @@ class Recommender:
             except Exception as e:
                 logger.exception("Scoring failed for internship id=%s: %s", internship.get("id"), e)
 
-        # 7) rank with deterministic tie-breakers
+        # 8) rank with deterministic tie-breakers
         def _created_at_ts(it: Dict[str, Any]) -> float:
-            # try a few common schema variants
             meta = it.get("internship", {})
             created = meta.get("created_at") or meta.get("posted_at") or meta.get("createdAt")
             if isinstance(created, (int, float)):
                 return float(created)
-            # ISO string?
             if isinstance(created, str):
                 try:
-                    # naive parse: YYYY-MM-DD...
                     parts = created.split("T")[0].split("-")
                     if len(parts) >= 3:
                         y, m, d = [int(x) for x in parts[:3]]
-                        return (y * 372) + (m * 31) + d  # monotonic-ish without dateutil
+                        return (y * 372) + (m * 31) + d
                 except Exception:
                     return 0.0
             return 0.0
@@ -516,19 +598,6 @@ class Recommender:
         )
 
         top_recommendations = scored[: max(0, int(top_k))]
-
-        if fallback_note:
-            for rec in top_recommendations:
-                rec.setdefault("explanation_tags", []).append("Fallback: preferences relaxed")
-            # surface the note as a meta row if nothing at all found
-            if not top_recommendations:
-                top_recommendations.append({
-                    "internship": None,
-                    "score": 0.0,
-                    "distance_km": 0.0,
-                    "explanation_tags": [fallback_note],
-                })
-
         elapsed_ms = (time.time() - start_time) * 1000.0
 
         return {
@@ -537,6 +606,7 @@ class Recommender:
             "total_found": len(all_candidates),
             "search_radius_used": radius_used,
             "processing_time_ms": elapsed_ms,
+            "fallback_note": fallback_note,
         }
 
 # Create a global recommender instance

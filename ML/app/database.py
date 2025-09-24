@@ -59,8 +59,20 @@ class DatabaseManager:
             col = self.internships_collection
 
             # Geospatial indexes (GeoJSON expects lon,lat and GEOSPHERE)
-            col.create_index([("location_point_exact", GEOSPHERE)], name="idx_geo_exact")
-            col.create_index([("location_point_city", GEOSPHERE)], name="idx_geo_city")
+            try:
+                col.create_index([("location_point_exact", GEOSPHERE)], name="idx_geo_exact")
+            except OperationFailure as e:
+                if "IndexOptionsConflict" in str(e):
+                    logger.info("Geospatial index for location_point_exact already exists")
+                else:
+                    raise
+            try:
+                col.create_index([("location_point_city", GEOSPHERE)], name="idx_geo_city")
+            except OperationFailure as e:
+                if "IndexOptionsConflict" in str(e):
+                    logger.info("Geospatial index for location_point_city already exists")
+                else:
+                    raise
             logger.info("Ensured geospatial indexes")
 
             # Text index for search fields (single combined text index)
@@ -174,6 +186,11 @@ class DatabaseManager:
         Find the nearest N internships to the user's coordinates, optionally filtered by preference.
         Supports max_distance_km to limit search radius.
         """
+        if self.client is None:
+            logger.info("Connecting to database for nearest search")
+            if not self.connect():
+                logger.error("Failed to connect to database")
+                return []
         if self.internships_collection is None:
             logger.error("No collection available for nearest search")
             return []
