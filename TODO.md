@@ -1,0 +1,3 @@
+- [x] Update index.html to add check for InlineLayout in googleTranslateElementInit
+- [x] Update AppBar.tsx to add check for TranslateElement and InlineLayout
+- [ ] Test the fix by running the frontend

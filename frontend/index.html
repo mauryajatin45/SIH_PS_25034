@@ -13,6 +13,10 @@
     <!-- Google Translate -->
     <script type="text/javascript">
       function googleTranslateElementInit() {
+        if (!google || !google.translate || !google.translate.TranslateElement || !google.translate.TranslateElement.InlineLayout) {
+          setTimeout(googleTranslateElementInit, 100);
+          return;
+        }
         new google.translate.TranslateElement({
           pageLanguage: 'en',
           includedLanguages: 'en,hi,bn,ta,te,gu,kn,ml,mr,pa,ur,as,or',

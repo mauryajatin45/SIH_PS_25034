@@ -16,7 +16,7 @@ export default function AppBar({ title, showBack = false, onBack }: AppBarProps)
   // -------- Google Translate init (unchanged) --------
   useEffect(() => {
     const initGoogleTranslate = () => {
-      if ((window as any).google && (window as any).google.translate) {
+      if ((window as any).google && (window as any).google.translate && (window as any).google.translate.TranslateElement && (window as any).google.translate.TranslateElement.InlineLayout) {
         new (window as any).google.translate.TranslateElement(
           {
             pageLanguage: 'en',

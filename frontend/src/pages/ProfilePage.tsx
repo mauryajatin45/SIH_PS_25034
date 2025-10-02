@@ -1,5 +1,5 @@
 // client/src/pages/ProfilePage.tsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, Mic, MicOff } from 'lucide-react';
 import Stepper from '../components/Stepper';
